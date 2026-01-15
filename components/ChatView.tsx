@@ -121,6 +121,8 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
     const groupMembers = (Object.values(users) as User[]).filter(u => 
       u.district === activeChannel?.district || activeChannel?.type === 'main'
     );
+    // Mock online count: roughly 30% of members + 1 (self)
+    const onlineCount = Math.max(1, Math.floor(groupMembers.length * 0.3) + 1);
 
     return (
       <div className="flex flex-col h-full bg-slate-50 animate-fadeIn">
@@ -161,8 +163,8 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
                 <div className="text-[10px] uppercase text-slate-400 font-bold">Members</div>
               </div>
               <div className="text-center">
-                <div className="text-xl font-black text-slate-900">{activeMessages.length}</div>
-                <div className="text-[10px] uppercase text-slate-400 font-bold">Messages</div>
+                <div className="text-xl font-black text-slate-900">{onlineCount}</div>
+                <div className="text-[10px] uppercase text-slate-400 font-bold">Online</div>
               </div>
             </div>
           </div>
@@ -246,7 +248,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
                       <p className="text-[11px] font-black text-emerald-600 mb-2 uppercase tracking-widest">{msg.senderName}</p>
                       <p className="text-[15px] font-bold text-slate-800 leading-relaxed mb-4">{msg.text}</p>
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-black text-slate-300 uppercase">{msg.timestamp.toLocaleTimeString()}</span>
+                        <span className="text-[10px] font-black text-slate-300 uppercase">{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                         {isAdmin && (
                             <button onClick={() => deleteMessage(activeChannelId, msg.id)} className="text-red-400 text-xs font-bold">Delete</button>
                         )}
@@ -263,7 +265,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
                   {!isMe && <p className="text-[10px] font-black text-emerald-600 mb-1 uppercase tracking-tighter">{msg.senderName}</p>}
                   <p className="leading-relaxed font-semibold">{msg.text}</p>
                   <div className="flex justify-end items-center gap-2 mt-1">
-                    <span className={`text-[9px] font-bold ${isMe ? 'text-emerald-100' : 'text-slate-400'}`}>{msg.timestamp.toLocaleTimeString()}</span>
+                    <span className={`text-[9px] font-bold ${isMe ? 'text-emerald-100' : 'text-slate-400'}`}>{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                     {isAdmin && !msg.deleted && (
                          <button onClick={() => deleteMessage(activeChannelId, msg.id)} className="text-red-300 hover:text-red-100 text-[10px] font-bold">DEL</button>
                     )}
