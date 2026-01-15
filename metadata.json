@@ -1,0 +1,8 @@
+{
+  "name": "DIS - Somalia District Civic Chat",
+  "description": "A modern civic platform for Somali citizens to collaborate on district beauty, cleanliness, and development through real-time chat and awareness sharing.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
