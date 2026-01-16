@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { User, Message, Channel } from '../types';
 import { useData } from '../context/DataContext';
 import { VerificationBadge } from '../constants';
@@ -12,12 +12,13 @@ interface ChatViewProps {
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setActiveChannelId }) => {
-  const { channels, messages, sendMessage, deleteMessage, users, unreadCounts, markChannelAsRead } = useData();
+  const { channels, messages, sendMessage, deleteMessage, users, unreadCounts, markChannelAsRead, banUser } = useData();
   const [inputValue, setInputValue] = useState('');
   const [currentView, setCurrentView] = useState<'list' | 'chat' | 'details'>('list');
   const [showWorkDoneModal, setShowWorkDoneModal] = useState(false);
   const [workText, setWorkText] = useState('');
   const [workImage, setWorkImage] = useState<string | null>(null);
+  const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
   
   // Admin Action State
   const [adminAction, setAdminAction] = useState<{
@@ -26,7 +27,9 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
     type: 'message' | 'user_only';
   } | null>(null);
 
+  const chatContainerRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const isFirstLoad = useRef(true);
 
   const visibleChannels = channels.filter(channel => 
     channel.type === 'main' || 
@@ -38,17 +41,35 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
   const activeMessages = messages[activeChannelId] || [];
   const activeChannel = channels.find(c => c.id === activeChannelId);
 
-  useEffect(() => {
+  // Scroll Logic: Only scroll to bottom on initial load, channel switch, or if user sent a message.
+  // Don't force scroll on every render to allow reading history.
+  useLayoutEffect(() => {
     if (currentView === 'chat') {
-      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      markChannelAsRead(activeChannelId);
+        if (isFirstLoad.current) {
+            chatEndRef.current?.scrollIntoView({ behavior: 'auto' });
+            isFirstLoad.current = false;
+        } else {
+            // Check if last message is from current user, if so scroll
+            const lastMsg = activeMessages[activeMessages.length - 1];
+            if (lastMsg?.senderId === user.id) {
+                chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }
+        }
+        markChannelAsRead(activeChannelId);
     }
-  }, [activeMessages, activeChannelId, currentView]);
+  }, [activeMessages.length, activeChannelId, currentView]);
+
+  // Reset first load when channel changes
+  useEffect(() => {
+      isFirstLoad.current = true;
+  }, [activeChannelId]);
 
   const handleSendMessage = async () => {
     if (!inputValue.trim()) return;
     await sendMessage(activeChannelId, inputValue, 'text');
     setInputValue('');
+    // Force scroll on send
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   };
 
   const handleSendWorkDone = async () => {
@@ -57,6 +78,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
     setWorkText('');
     setWorkImage(null);
     setShowWorkDoneModal(false);
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -84,8 +106,14 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
   const handleAdminMessageAction = (e: React.MouseEvent, msg: Message) => {
       if (user.role === 'admin' || user.role === 'super_admin') {
           e.preventDefault();
+          e.stopPropagation();
           setAdminAction({ userId: msg.senderId, contentId: msg.id, type: 'message' });
       }
+  };
+
+  const handleDeleteMessage = async (msgId: string) => {
+      await deleteMessage(activeChannelId, msgId);
+      setActiveMessageId(null);
   };
 
   if (currentView === 'list') {
@@ -125,7 +153,9 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
             >
               <div className="relative shrink-0">
                 <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-emerald-50 bg-white p-0.5 shadow-sm">
-                   {chan.type === 'main' ? (
+                   {chan.avatar ? (
+                      <img src={chan.avatar} className="w-full h-full object-cover rounded-full" alt={chan.name} />
+                   ) : chan.type === 'main' ? (
                       <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/a/a0/Flag_of_Somalia.svg/1200px-Flag_of_Somalia.svg.png" className="w-full h-full object-cover rounded-full" alt="Flag" />
                    ) : (
                       <div className="w-full h-full bg-emerald-100 flex items-center justify-center font-bold text-emerald-600 rounded-full">{chan.icon}</div>
@@ -161,13 +191,25 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
     );
   }
 
-  // Redesigned Details View
+  // Details View (Group Profile)
   if (currentView === 'details') {
     const groupMembers = (Object.values(users) as User[]).filter(u => 
       u.district === activeChannel?.district || activeChannel?.type === 'main'
-    );
-    // Mock online count: roughly 30% of members + 1 (self)
+    ).sort((a, b) => {
+        // Sort admins first
+        const aRole = (a.role === 'admin' || a.role === 'super_admin') ? 2 : 1;
+        const bRole = (b.role === 'admin' || b.role === 'super_admin') ? 2 : 1;
+        return bRole - aRole;
+    });
+
     const onlineCount = Math.max(1, Math.floor(groupMembers.length * 0.3) + 1);
+    const currentUserIsAdmin = user.role === 'admin' || user.role === 'super_admin';
+
+    const handleBlockUser = async (targetId: string) => {
+        if(confirm('Are you sure you want to block this user?')) {
+            await banUser(targetId);
+        }
+    };
 
     return (
       <div className="flex flex-col h-full bg-slate-50 animate-fadeIn">
@@ -190,7 +232,9 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
         <div className="px-6 -mt-12 relative z-10 mb-6">
           <div className="bg-white rounded-3xl shadow-lg p-6 flex flex-col items-center">
             <div className="w-24 h-24 rounded-full border-4 border-white shadow-md -mt-16 mb-4 bg-emerald-50 flex items-center justify-center overflow-hidden">
-               {activeChannel?.type === 'main' ? (
+               {activeChannel?.avatar ? (
+                  <img src={activeChannel.avatar} className="w-full h-full object-cover" alt="Group" />
+               ) : activeChannel?.type === 'main' ? (
                   <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/a/a0/Flag_of_Somalia.svg/1200px-Flag_of_Somalia.svg.png" className="w-full h-full object-cover" alt="Flag" />
                ) : (
                   <span className="text-4xl">{activeChannel?.icon}</span>
@@ -219,30 +263,48 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
         <div className="flex-1 overflow-y-auto px-6 pb-6">
           <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4 ml-2">Group Members</h3>
           <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-            {groupMembers.map((u, idx) => (
+            {groupMembers.map((u, idx) => {
+              const isTargetAdmin = u.role === 'admin' || u.role === 'super_admin';
+              const canAction = currentUserIsAdmin && !isTargetAdmin && u.id !== user.id;
+
+              return (
               <div key={u.id} className={`flex items-center gap-4 p-4 hover:bg-slate-50 transition-colors ${idx !== groupMembers.length - 1 ? 'border-b border-slate-50' : ''}`}>
                 <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center font-bold text-emerald-600">
                   {u.name[0]}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h4 className="font-bold text-slate-900 truncate flex items-center">
+                  <h4 className="font-bold text-slate-900 truncate flex items-center gap-1">
                       {u.name}
                       {u.isVerified && <VerificationBadge />}
                   </h4>
                   <p className="text-xs text-slate-500 truncate">{u.district}</p>
                 </div>
-                {u.role !== 'user' && (
-                  <span className="text-[10px] font-bold bg-purple-100 text-purple-600 px-2 py-1 rounded uppercase">
-                    {u.role}
-                  </span>
-                )}
+                <div className="flex items-center gap-2">
+                    {u.role !== 'user' && (
+                    <span className="text-[10px] font-bold bg-purple-100 text-purple-600 px-2 py-1 rounded uppercase">
+                        {u.role}
+                    </span>
+                    )}
+                    {canAction && (
+                        <div className="relative group">
+                            <button className="p-1.5 hover:bg-slate-200 rounded-full text-slate-400">
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" /></svg>
+                            </button>
+                            {/* Simple hover dropdown for demo */}
+                            <div className="absolute right-0 top-8 w-32 bg-white shadow-xl rounded-xl overflow-hidden border border-slate-100 hidden group-hover:block z-20">
+                                <button 
+                                    onClick={() => handleBlockUser(u.id)}
+                                    className="w-full text-left px-4 py-2 text-xs font-bold text-red-600 hover:bg-red-50"
+                                >
+                                    Block User
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
               </div>
-            ))}
+            )})}
           </div>
-
-          <button className="w-full mt-6 py-4 text-red-500 font-bold text-sm bg-red-50 rounded-2xl border border-red-100 hover:bg-red-100 transition-colors">
-            Exit Group
-          </button>
         </div>
       </div>
     );
@@ -260,7 +322,9 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
           </svg>
         </button>
         <div className="w-10 h-10 rounded-full bg-emerald-600 flex items-center justify-center text-white font-bold text-lg border-2 border-white shadow-sm overflow-hidden">
-            {activeChannel?.type === 'main' ? (
+            {activeChannel?.avatar ? (
+                <img src={activeChannel.avatar} className="w-full h-full object-cover" alt="icon"/>
+            ) : activeChannel?.type === 'main' ? (
                 <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/a/a0/Flag_of_Somalia.svg/1200px-Flag_of_Somalia.svg.png" className="w-full h-full object-cover" alt="icon"/>
             ) : (
                 <span>{activeChannel?.icon}</span>
@@ -274,20 +338,35 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-slate-50 relative">
+      <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-slate-50 relative" ref={chatContainerRef}>
         <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-[url('https://i.pinimg.com/originals/97/c0/07/97c00754174d276293430ee283ee3691.jpg')] bg-repeat" />
         
         <div className="space-y-6 relative z-10">
           {activeMessages.map((msg) => {
             const isMe = msg.senderId === user.id;
             const sender = users[msg.senderId];
+            const isAdmin = user.role === 'admin' || user.role === 'super_admin';
 
-            if (msg.type === 'work_done' && !msg.deleted) {
-              return (
-                <div 
-                    key={msg.id} 
-                    className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
-                >
+            return (
+              <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group relative`}>
+                
+                {/* Admin Actions Context Menu for Messages */}
+                {isAdmin && (
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); setActiveMessageId(activeMessageId === msg.id ? null : msg.id); }}
+                        className={`absolute top-0 ${isMe ? '-left-8' : '-right-8'} p-1 text-slate-300 hover:text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity`}
+                    >
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
+                    </button>
+                )}
+                {activeMessageId === msg.id && isAdmin && (
+                    <div className={`absolute top-6 ${isMe ? 'right-full mr-2' : 'left-full ml-2'} bg-white shadow-xl rounded-xl z-20 border border-slate-100 overflow-hidden w-24 animate-fadeIn`}>
+                        <button onClick={() => handleDeleteMessage(msg.id)} className="w-full text-left px-3 py-2 text-xs font-bold text-red-500 hover:bg-red-50">Delete</button>
+                        <button onClick={(e) => handleAdminMessageAction(e, msg)} className="w-full text-left px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50">Manage User</button>
+                    </div>
+                )}
+
+                {msg.type === 'work_done' && !msg.deleted ? (
                   <div 
                     className={`max-w-[92%] bg-white rounded-[32px] overflow-hidden shadow-2xl border-2 ${isMe ? 'border-emerald-100' : 'border-slate-100'} select-none cursor-pointer active:scale-[0.98] transition-transform`}
                     onContextMenu={(e) => handleAdminMessageAction(e, msg)}
@@ -300,7 +379,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
                     </div>
                     <div className="p-5">
                       <p 
-                        className="text-[11px] font-black text-emerald-600 mb-2 uppercase tracking-widest flex items-center hover:underline"
+                        className="text-[11px] font-black text-emerald-600 mb-2 uppercase tracking-widest flex items-center hover:underline cursor-pointer"
                         onClick={(e) => { e.stopPropagation(); handleAdminUserAction(msg.senderId); }}
                       >
                           {msg.senderName}
@@ -312,30 +391,26 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
                       </div>
                     </div>
                   </div>
-                </div>
-              );
-            }
-
-            return (
-              <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-                <div 
+                ) : (
+                  <div 
                     onContextMenu={(e) => handleAdminMessageAction(e, msg)}
                     className={`max-w-[85%] px-4 py-3 rounded-2xl shadow-sm text-[15px] relative select-none ${isMe ? 'bg-emerald-600 text-white rounded-tr-none' : 'bg-white text-slate-800 rounded-tl-none border border-slate-100'} ${msg.deleted ? 'opacity-60 italic' : ''}`}
-                >
-                  {!isMe && (
-                      <p 
-                        className="text-[10px] font-black text-emerald-600 mb-1 uppercase tracking-tighter flex items-center cursor-pointer hover:underline"
-                        onClick={(e) => { e.stopPropagation(); handleAdminUserAction(msg.senderId); }}
-                      >
-                          {msg.senderName}
-                          {sender?.isVerified && <VerificationBadge />}
-                      </p>
-                  )}
-                  <p className="leading-relaxed font-semibold">{msg.text}</p>
-                  <div className="flex justify-end items-center gap-2 mt-1">
-                    <span className={`text-[9px] font-bold ${isMe ? 'text-emerald-100' : 'text-slate-400'}`}>{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  >
+                    {!isMe && (
+                        <p 
+                          className="text-[10px] font-black text-emerald-600 mb-1 uppercase tracking-tighter flex items-center cursor-pointer hover:underline"
+                          onClick={(e) => { e.stopPropagation(); handleAdminUserAction(msg.senderId); }}
+                        >
+                            {msg.senderName}
+                            {sender?.isVerified && <VerificationBadge />}
+                        </p>
+                    )}
+                    <p className="leading-relaxed font-semibold">{msg.text}</p>
+                    <div className="flex justify-end items-center gap-2 mt-1">
+                      <span className={`text-[9px] font-bold ${isMe ? 'text-emerald-100' : 'text-slate-400'}`}>{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             );
           })}

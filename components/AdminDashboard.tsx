@@ -6,7 +6,7 @@ import { VerificationBadge } from '../constants';
 
 // --- Dashboard Components ---
 
-const Sidebar: React.FC<{ activeTab: string; setActiveTab: (t: string) => void }> = ({ activeTab, setActiveTab }) => {
+const Sidebar: React.FC<{ activeTab: string; setActiveTab: (t: string) => void; isOpen: boolean; onClose: () => void }> = ({ activeTab, setActiveTab, isOpen, onClose }) => {
   const menuItems = [
     { id: 'overview', label: 'Overview', icon: 'M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z' },
     { id: 'districts', label: 'Districts & Groups', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
@@ -15,41 +15,49 @@ const Sidebar: React.FC<{ activeTab: string; setActiveTab: (t: string) => void }
   ];
 
   return (
-    <aside className="w-64 bg-slate-900 text-white h-screen fixed left-0 top-0 overflow-y-auto flex flex-col z-50">
-      <div className="p-6 border-b border-slate-800">
-        <h1 className="text-2xl font-black text-emerald-500 tracking-tighter flex items-center gap-2">
-          <span className="text-white">DIS</span> ADMIN
-        </h1>
-        <p className="text-[10px] uppercase font-bold text-slate-500 mt-1 tracking-widest">Super Admin Panel</p>
-      </div>
-      <nav className="flex-1 p-4 space-y-1">
-        {menuItems.map(item => (
-          <button
-            key={item.id}
-            onClick={() => setActiveTab(item.id)}
-            className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all font-bold text-sm ${
-              activeTab === item.id 
-                ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/20' 
-                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-            }`}
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.icon} />
-            </svg>
-            {item.label}
+    <>
+      {isOpen && <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={onClose} />}
+      <aside className={`w-64 bg-slate-900 text-white h-screen fixed left-0 top-0 overflow-y-auto flex flex-col z-50 transition-transform duration-300 ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+        <div className="p-6 border-b border-slate-800 flex justify-between items-center">
+          <div>
+            <h1 className="text-2xl font-black text-emerald-500 tracking-tighter flex items-center gap-2">
+              <span className="text-white">DIS</span> ADMIN
+            </h1>
+            <p className="text-[10px] uppercase font-bold text-slate-500 mt-1 tracking-widest">Super Admin Panel</p>
+          </div>
+          <button onClick={onClose} className="md:hidden text-slate-400">
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
-        ))}
-      </nav>
-      <div className="p-4 border-t border-slate-800">
-         <div className="bg-slate-800 rounded-xl p-3 flex items-center gap-3">
-             <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center font-bold">A</div>
-             <div className="overflow-hidden">
-                 <p className="text-sm font-bold truncate">Admin User</p>
-                 <p className="text-[10px] text-slate-400">Super Administrator</p>
-             </div>
-         </div>
-      </div>
-    </aside>
+        </div>
+        <nav className="flex-1 p-4 space-y-1">
+          {menuItems.map(item => (
+            <button
+              key={item.id}
+              onClick={() => { setActiveTab(item.id); onClose(); }}
+              className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all font-bold text-sm ${
+                activeTab === item.id 
+                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/20' 
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.icon} />
+              </svg>
+              {item.label}
+            </button>
+          ))}
+        </nav>
+        <div className="p-4 border-t border-slate-800">
+           <div className="bg-slate-800 rounded-xl p-3 flex items-center gap-3">
+               <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center font-bold">A</div>
+               <div className="overflow-hidden">
+                   <p className="text-sm font-bold truncate">Admin User</p>
+                   <p className="text-[10px] text-slate-400">Super Administrator</p>
+               </div>
+           </div>
+        </div>
+      </aside>
+    </>
   );
 };
 
@@ -93,7 +101,7 @@ const Overview: React.FC = () => {
 };
 
 const DistrictManager: React.FC = () => {
-  const { channels, addDistrict, updateChannel, toggleChannelStatus } = useData();
+  const { channels, addDistrict, updateChannel } = useData();
   const [newDistrict, setNewDistrict] = useState('');
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
 
@@ -101,9 +109,21 @@ const DistrictManager: React.FC = () => {
       if(editingChannel) {
           await updateChannel(editingChannel.id, {
               name: editingChannel.name,
-              status: editingChannel.status
+              status: editingChannel.status,
+              avatar: editingChannel.avatar
           });
           setEditingChannel(null);
+      }
+  };
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file && editingChannel) {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+              setEditingChannel({ ...editingChannel, avatar: reader.result as string });
+          };
+          reader.readAsDataURL(file);
       }
   };
 
@@ -112,8 +132,8 @@ const DistrictManager: React.FC = () => {
       <h2 className="text-3xl font-black text-slate-900">Districts & Groups</h2>
       
       {/* Add District */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex gap-4 items-end">
-          <div className="flex-1 space-y-2">
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col md:flex-row gap-4 items-end">
+          <div className="flex-1 w-full space-y-2">
               <label className="text-xs font-bold uppercase text-slate-400">Add New District</label>
               <input 
                  value={newDistrict} 
@@ -124,7 +144,7 @@ const DistrictManager: React.FC = () => {
           </div>
           <button 
              onClick={() => { if(newDistrict) { addDistrict(newDistrict); setNewDistrict(''); }}}
-             className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3.5 rounded-xl font-bold transition-colors shadow-lg shadow-emerald-200"
+             className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3.5 rounded-xl font-bold transition-colors shadow-lg shadow-emerald-200"
           >
               Add District
           </button>
@@ -150,7 +170,9 @@ const DistrictManager: React.FC = () => {
                       {channels.map(ch => (
                           <tr key={ch.id} className="hover:bg-slate-50/50">
                               <td className="p-4 font-bold text-slate-800 flex items-center gap-3">
-                                  <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-500">{ch.icon}</div>
+                                  <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-500 overflow-hidden">
+                                      {ch.avatar ? <img src={ch.avatar} className="w-full h-full object-cover" alt="icon"/> : ch.icon}
+                                  </div>
                                   {ch.name}
                               </td>
                               <td className="p-4 text-sm text-slate-500 capitalize">{ch.type}</td>
@@ -176,6 +198,24 @@ const DistrictManager: React.FC = () => {
               <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl animate-slideUp">
                   <h3 className="text-xl font-black text-slate-900 mb-6">Edit Group</h3>
                   <div className="space-y-4">
+                      
+                      {/* Avatar Upload */}
+                      <div className="flex justify-center mb-6">
+                          <label className="relative cursor-pointer group">
+                              <div className="w-24 h-24 rounded-full bg-slate-100 border-4 border-white shadow-lg overflow-hidden flex items-center justify-center">
+                                  {editingChannel.avatar ? (
+                                      <img src={editingChannel.avatar} className="w-full h-full object-cover" alt="Preview" />
+                                  ) : (
+                                      <span className="text-4xl text-slate-300 font-bold">{editingChannel.icon}</span>
+                                  )}
+                              </div>
+                              <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <span className="text-white text-xs font-bold uppercase">Change</span>
+                              </div>
+                              <input type="file" accept="image/*" onChange={handleAvatarChange} className="hidden" />
+                          </label>
+                      </div>
+
                       <div>
                           <label className="block text-xs font-bold uppercase text-slate-400 mb-2">Group Name</label>
                           <input 
@@ -241,7 +281,7 @@ const UserManager: React.FC = () => {
                     placeholder="Search by name or ID..."
                     value={search}
                     onChange={e => setSearch(e.target.value)}
-                    className="bg-white border border-slate-200 rounded-xl px-4 py-3 font-medium min-w-[300px]"
+                    className="w-full md:w-auto bg-white border border-slate-200 rounded-xl px-4 py-3 font-medium min-w-[300px]"
                 />
                 <div className="flex bg-white rounded-xl border border-slate-200 p-1">
                     {['all', 'admin', 'banned'].map((f) => (
@@ -414,9 +454,6 @@ const ReportsManager: React.FC = () => {
         if (!activeReport) return;
         if (action === 'remove') {
             if (activeReport.type === 'post') await deletePost(activeReport.targetId);
-            // Assuming we can map channelId from context or report if needed, for simplicity using a placeholder or context lookup
-            // For message deletion, we'd need channelId. In a real app, store channelId in Report.
-            // Here we assume report is post mostly based on context.
             await resolveReport(activeReport.id);
         } else if (action === 'dismiss') {
             await dismissReport(activeReport.id);
@@ -494,6 +531,7 @@ const ReportsManager: React.FC = () => {
 export const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [authenticated, setAuthenticated] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [pin, setPin] = useState('');
 
   const handleLogin = (e: React.FormEvent) => {
@@ -533,9 +571,17 @@ export const AdminDashboard: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans flex">
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
-      <main className="flex-1 ml-64 p-8 h-screen overflow-y-auto">
+    <div className="min-h-screen bg-slate-50 font-sans flex relative">
+      {/* Mobile Toggle */}
+      <button 
+        onClick={() => setSidebarOpen(true)}
+        className="md:hidden fixed top-4 right-4 z-30 bg-slate-900 text-white p-2 rounded-lg shadow-lg"
+      >
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16m-7 6h7" /></svg>
+      </button>
+
+      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <main className="flex-1 md:ml-64 p-4 md:p-8 h-screen overflow-y-auto">
         {activeTab === 'overview' && <Overview />}
         {activeTab === 'districts' && <DistrictManager />}
         {activeTab === 'users' && <UserManager />}
@@ -546,7 +592,7 @@ export const AdminDashboard: React.FC = () => {
 };
 
 const StatCard: React.FC<{ label: string; value: number; icon: string; color: string }> = ({ label, value, icon, color }) => {
-    // Icon mapping simplified for the example, relying on the 'icon' string to determine path
+    // Icon mapping simplified for the example
     let d = "";
     if (icon === 'users') d = "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z";
     if (icon === 'map') d = "M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z";

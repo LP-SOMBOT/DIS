@@ -76,6 +76,7 @@ export interface Channel {
   id: string;
   name: string;
   icon: string;
+  avatar?: string; // Added for custom group image
   lastMessage?: string;
   unread?: number;
   type: 'main' | 'district';
