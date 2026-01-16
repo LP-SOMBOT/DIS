@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { User, Message, Channel } from '../types';
 import { useData } from '../context/DataContext';
 import { VerificationBadge } from '../constants';
+import { AdminActionSheet } from './AdminActionSheet';
 
 interface ChatViewProps {
   user: User;
@@ -18,6 +19,13 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
   const [workText, setWorkText] = useState('');
   const [workImage, setWorkImage] = useState<string | null>(null);
   
+  // Admin Action State
+  const [adminAction, setAdminAction] = useState<{
+    userId: string;
+    contentId?: string;
+    type: 'message' | 'user_only';
+  } | null>(null);
+
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const visibleChannels = channels.filter(channel => 
@@ -65,6 +73,19 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
   const selectChannel = (id: string) => {
     setActiveChannelId(id);
     setCurrentView('chat');
+  };
+
+  const handleAdminUserAction = (userId: string) => {
+     if (user.role === 'admin' || user.role === 'super_admin') {
+         setAdminAction({ userId, type: 'user_only' });
+     }
+  };
+
+  const handleAdminMessageAction = (e: React.MouseEvent, msg: Message) => {
+      if (user.role === 'admin' || user.role === 'super_admin') {
+          e.preventDefault();
+          setAdminAction({ userId: msg.senderId, contentId: msg.id, type: 'message' });
+      }
   };
 
   if (currentView === 'list') {
@@ -259,13 +280,18 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
         <div className="space-y-6 relative z-10">
           {activeMessages.map((msg) => {
             const isMe = msg.senderId === user.id;
-            const isAdmin = user.role === 'admin' || user.role === 'super_admin';
             const sender = users[msg.senderId];
 
             if (msg.type === 'work_done' && !msg.deleted) {
               return (
-                <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-                  <div className={`max-w-[92%] bg-white rounded-[32px] overflow-hidden shadow-2xl border-2 ${isMe ? 'border-emerald-100' : 'border-slate-100'}`}>
+                <div 
+                    key={msg.id} 
+                    className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
+                >
+                  <div 
+                    className={`max-w-[92%] bg-white rounded-[32px] overflow-hidden shadow-2xl border-2 ${isMe ? 'border-emerald-100' : 'border-slate-100'} select-none cursor-pointer active:scale-[0.98] transition-transform`}
+                    onContextMenu={(e) => handleAdminMessageAction(e, msg)}
+                  >
                     <div className="relative aspect-[16/10]">
                       <img src={msg.mediaUrl} className="w-full h-full object-cover" alt="Work Done" />
                       <div className="absolute top-4 left-4 bg-emerald-600 text-white text-[9px] font-black px-3 py-1.5 rounded-full shadow-lg border border-white/20 uppercase tracking-[0.2em]">
@@ -273,16 +299,16 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
                       </div>
                     </div>
                     <div className="p-5">
-                      <p className="text-[11px] font-black text-emerald-600 mb-2 uppercase tracking-widest flex items-center">
+                      <p 
+                        className="text-[11px] font-black text-emerald-600 mb-2 uppercase tracking-widest flex items-center hover:underline"
+                        onClick={(e) => { e.stopPropagation(); handleAdminUserAction(msg.senderId); }}
+                      >
                           {msg.senderName}
                           {sender?.isVerified && <VerificationBadge />}
                       </p>
                       <p className="text-[15px] font-bold text-slate-800 leading-relaxed mb-4">{msg.text}</p>
                       <div className="flex justify-between items-center">
                         <span className="text-[10px] font-black text-slate-300 uppercase">{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                        {isAdmin && (
-                            <button onClick={() => deleteMessage(activeChannelId, msg.id)} className="text-red-400 text-xs font-bold">Delete</button>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -292,9 +318,15 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
 
             return (
               <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-                <div className={`max-w-[85%] px-4 py-3 rounded-2xl shadow-sm text-[15px] relative ${isMe ? 'bg-emerald-600 text-white rounded-tr-none' : 'bg-white text-slate-800 rounded-tl-none border border-slate-100'} ${msg.deleted ? 'opacity-60 italic' : ''}`}>
+                <div 
+                    onContextMenu={(e) => handleAdminMessageAction(e, msg)}
+                    className={`max-w-[85%] px-4 py-3 rounded-2xl shadow-sm text-[15px] relative select-none ${isMe ? 'bg-emerald-600 text-white rounded-tr-none' : 'bg-white text-slate-800 rounded-tl-none border border-slate-100'} ${msg.deleted ? 'opacity-60 italic' : ''}`}
+                >
                   {!isMe && (
-                      <p className="text-[10px] font-black text-emerald-600 mb-1 uppercase tracking-tighter flex items-center">
+                      <p 
+                        className="text-[10px] font-black text-emerald-600 mb-1 uppercase tracking-tighter flex items-center cursor-pointer hover:underline"
+                        onClick={(e) => { e.stopPropagation(); handleAdminUserAction(msg.senderId); }}
+                      >
                           {msg.senderName}
                           {sender?.isVerified && <VerificationBadge />}
                       </p>
@@ -302,9 +334,6 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
                   <p className="leading-relaxed font-semibold">{msg.text}</p>
                   <div className="flex justify-end items-center gap-2 mt-1">
                     <span className={`text-[9px] font-bold ${isMe ? 'text-emerald-100' : 'text-slate-400'}`}>{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                    {isAdmin && !msg.deleted && (
-                         <button onClick={() => deleteMessage(activeChannelId, msg.id)} className="text-red-300 hover:text-red-100 text-[10px] font-bold">DEL</button>
-                    )}
                   </div>
                 </div>
               </div>
@@ -396,6 +425,18 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
             </>
          )}
       </div>
+
+      {user && (
+        <AdminActionSheet 
+            isOpen={!!adminAction}
+            onClose={() => setAdminAction(null)}
+            currentUser={user}
+            targetUserId={adminAction?.userId || null}
+            targetContentId={adminAction?.contentId}
+            channelId={activeChannelId}
+            contentType={adminAction?.type || null}
+        />
+      )}
     </div>
   );
 };

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { HomePost, User } from '../types';
 import { useData } from '../context/DataContext';
 import { VerificationBadge } from '../constants';
+import { AdminActionSheet } from './AdminActionSheet';
 
 interface HomeFeedProps {
   user?: User;
@@ -12,6 +13,13 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ user }) => {
   const { posts, createPost, deletePost, toggleLike, submitReport } = useData();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [activeCommentPostId, setActiveCommentPostId] = useState<string | null>(null);
+  
+  // Admin Action State
+  const [adminAction, setAdminAction] = useState<{
+    userId: string;
+    contentId?: string;
+    type: 'post' | 'user_only';
+  } | null>(null);
 
   // Filter posts based on visibility
   const visiblePosts = posts.filter(p => p.active && (p.visibility === 'public' || p.district === user?.district));
@@ -19,6 +27,12 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ user }) => {
   const handleCreatePost = async (postData: Partial<HomePost>) => {
     await createPost(postData);
     setShowCreateModal(false);
+  };
+
+  const openAdminAction = (userId: string, contentId?: string, type: 'post' | 'user_only' = 'user_only') => {
+      if (user?.role === 'admin' || user?.role === 'super_admin') {
+          setAdminAction({ userId, contentId, type });
+      }
   };
 
   return (
@@ -49,6 +63,7 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ user }) => {
           onReport={submitReport} 
           onLike={toggleLike}
           onComment={() => setActiveCommentPostId(post.id)}
+          onAdminAction={openAdminAction}
         />
       ))}
 
@@ -67,6 +82,17 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ user }) => {
           currentUser={user}
         />
       )}
+
+      {user && (
+        <AdminActionSheet 
+            isOpen={!!adminAction}
+            onClose={() => setAdminAction(null)}
+            currentUser={user}
+            targetUserId={adminAction?.userId || null}
+            targetContentId={adminAction?.contentId}
+            contentType={adminAction?.type || null}
+        />
+      )}
     </div>
   );
 };
@@ -78,7 +104,8 @@ const PostCard: React.FC<{
   onReport: (data: any) => void;
   onLike: (id: string) => void;
   onComment: () => void;
-}> = ({ post, currentUser, onDelete, onReport, onLike, onComment }) => {
+  onAdminAction: (userId: string, contentId?: string, type?: 'post' | 'user_only') => void;
+}> = ({ post, currentUser, onDelete, onReport, onLike, onComment, onAdminAction }) => {
   const [sliderPos, setSliderPos] = useState(50);
   const [showOptions, setShowOptions] = useState(false);
   const [hasReported, setHasReported] = useState(false);
@@ -122,10 +149,30 @@ const PostCard: React.FC<{
     setShowOptions(false);
   };
 
+  const handleUserClick = (e: React.MouseEvent) => {
+      if (isAdmin) {
+          e.stopPropagation();
+          onAdminAction(post.author.id, undefined, 'user_only');
+      }
+  };
+
+  const handlePostContextMenu = (e: React.MouseEvent) => {
+      if (isAdmin) {
+          e.preventDefault();
+          onAdminAction(post.author.id, post.id, 'post');
+      }
+  };
+
   return (
-    <div className="bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100 transition-all relative">
+    <div 
+        onContextMenu={handlePostContextMenu}
+        className="bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100 transition-all relative select-none"
+    >
       <div className="p-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+        <div 
+            className={`flex items-center gap-3 ${isAdmin ? 'cursor-pointer hover:opacity-80' : ''}`}
+            onClick={handleUserClick}
+        >
           <div className="w-10 h-10 rounded-full bg-emerald-600 border-2 border-emerald-50 flex items-center justify-center text-white font-black text-lg">
             {post.author.avatar}
           </div>
