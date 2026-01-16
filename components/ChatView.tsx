@@ -12,13 +12,14 @@ interface ChatViewProps {
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setActiveChannelId }) => {
-  const { channels, messages, sendMessage, deleteMessage, users, unreadCounts, markChannelAsRead, banUser } = useData();
+  const { channels, messages, sendMessage, deleteMessage, users, unreadCounts, markChannelAsRead } = useData();
   const [inputValue, setInputValue] = useState('');
   const [currentView, setCurrentView] = useState<'list' | 'chat' | 'details'>('list');
   const [showWorkDoneModal, setShowWorkDoneModal] = useState(false);
   const [workText, setWorkText] = useState('');
   const [workImage, setWorkImage] = useState<string | null>(null);
   const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
+  const [profileActionUser, setProfileActionUser] = useState<string | null>(null);
   
   // Admin Action State
   const [adminAction, setAdminAction] = useState<{
@@ -29,7 +30,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const isFirstLoad = useRef(true);
+  const shouldScrollToBottom = useRef(true);
 
   const visibleChannels = channels.filter(channel => 
     channel.type === 'main' || 
@@ -41,35 +42,41 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
   const activeMessages = messages[activeChannelId] || [];
   const activeChannel = channels.find(c => c.id === activeChannelId);
 
-  // Scroll Logic: Only scroll to bottom on initial load, channel switch, or if user sent a message.
-  // Don't force scroll on every render to allow reading history.
+  // Improved Scrolling Logic
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+      chatEndRef.current?.scrollIntoView({ behavior });
+  };
+
   useLayoutEffect(() => {
     if (currentView === 'chat') {
-        if (isFirstLoad.current) {
-            chatEndRef.current?.scrollIntoView({ behavior: 'auto' });
-            isFirstLoad.current = false;
+        if (shouldScrollToBottom.current) {
+             scrollToBottom('auto');
+             shouldScrollToBottom.current = false;
         } else {
-            // Check if last message is from current user, if so scroll
-            const lastMsg = activeMessages[activeMessages.length - 1];
-            if (lastMsg?.senderId === user.id) {
-                chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-            }
+             // If user is near bottom, auto scroll on new message
+             const container = chatContainerRef.current;
+             if (container) {
+                 const { scrollTop, scrollHeight, clientHeight } = container;
+                 // If within 150px of bottom, scroll
+                 if (scrollHeight - scrollTop - clientHeight < 150) {
+                     scrollToBottom();
+                 }
+             }
         }
         markChannelAsRead(activeChannelId);
     }
   }, [activeMessages.length, activeChannelId, currentView]);
 
-  // Reset first load when channel changes
+  // Reset scroll flag when changing channel
   useEffect(() => {
-      isFirstLoad.current = true;
+      shouldScrollToBottom.current = true;
   }, [activeChannelId]);
 
   const handleSendMessage = async () => {
     if (!inputValue.trim()) return;
     await sendMessage(activeChannelId, inputValue, 'text');
     setInputValue('');
-    // Force scroll on send
-    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    setTimeout(() => scrollToBottom(), 100);
   };
 
   const handleSendWorkDone = async () => {
@@ -78,7 +85,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
     setWorkText('');
     setWorkImage(null);
     setShowWorkDoneModal(false);
-    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    setTimeout(() => scrollToBottom(), 100);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -98,17 +105,16 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
   };
 
   const handleAdminUserAction = (userId: string) => {
-     if (user.role === 'admin' || user.role === 'super_admin') {
-         setAdminAction({ userId, type: 'user_only' });
-     }
+     // Check if current user is admin/super_admin using live data check in ActionSheet
+     setAdminAction({ userId, type: 'user_only' });
   };
 
   const handleAdminMessageAction = (e: React.MouseEvent, msg: Message) => {
-      if (user.role === 'admin' || user.role === 'super_admin') {
+     if (user.role === 'admin' || user.role === 'super_admin') {
           e.preventDefault();
           e.stopPropagation();
           setAdminAction({ userId: msg.senderId, contentId: msg.id, type: 'message' });
-      }
+     }
   };
 
   const handleDeleteMessage = async (msgId: string) => {
@@ -205,12 +211,6 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
     const onlineCount = Math.max(1, Math.floor(groupMembers.length * 0.3) + 1);
     const currentUserIsAdmin = user.role === 'admin' || user.role === 'super_admin';
 
-    const handleBlockUser = async (targetId: string) => {
-        if(confirm('Are you sure you want to block this user?')) {
-            await banUser(targetId);
-        }
-    };
-
     return (
       <div className="flex flex-col h-full bg-slate-50 animate-fadeIn">
         {/* Header Image/Pattern */}
@@ -262,7 +262,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
         {/* Members List */}
         <div className="flex-1 overflow-y-auto px-6 pb-6">
           <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4 ml-2">Group Members</h3>
-          <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden min-h-[200px]">
             {groupMembers.map((u, idx) => {
               const isTargetAdmin = u.role === 'admin' || u.role === 'super_admin';
               const canAction = currentUserIsAdmin && !isTargetAdmin && u.id !== user.id;
@@ -279,26 +279,29 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
                   </h4>
                   <p className="text-xs text-slate-500 truncate">{u.district}</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 relative">
                     {u.role !== 'user' && (
                     <span className="text-[10px] font-bold bg-purple-100 text-purple-600 px-2 py-1 rounded uppercase">
                         {u.role}
                     </span>
                     )}
                     {canAction && (
-                        <div className="relative group">
-                            <button className="p-1.5 hover:bg-slate-200 rounded-full text-slate-400">
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" /></svg>
-                            </button>
-                            {/* Simple hover dropdown for demo */}
-                            <div className="absolute right-0 top-8 w-32 bg-white shadow-xl rounded-xl overflow-hidden border border-slate-100 hidden group-hover:block z-20">
-                                <button 
-                                    onClick={() => handleBlockUser(u.id)}
-                                    className="w-full text-left px-4 py-2 text-xs font-bold text-red-600 hover:bg-red-50"
-                                >
-                                    Block User
-                                </button>
-                            </div>
+                        <button 
+                            onClick={() => setProfileActionUser(profileActionUser === u.id ? null : u.id)}
+                            className="p-1.5 hover:bg-slate-200 rounded-full text-slate-400"
+                        >
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" /></svg>
+                        </button>
+                    )}
+                    {/* Inline Action Menu */}
+                    {profileActionUser === u.id && canAction && (
+                        <div className="absolute right-0 top-8 w-32 bg-white shadow-xl rounded-xl overflow-hidden border border-slate-100 z-20 animate-fadeIn">
+                             <button 
+                                onClick={() => { setAdminAction({ userId: u.id, type: 'user_only' }); setProfileActionUser(null); }}
+                                className="w-full text-left px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                             >
+                                Manage User
+                             </button>
                         </div>
                     )}
                 </div>

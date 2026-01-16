@@ -98,6 +98,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (cachedDistricts) setDistricts(JSON.parse(cachedDistricts));
   }, []);
 
+  // Sync currentUser with live users data to ensure permissions are up to date
+  useEffect(() => {
+      if (currentUser && users[currentUser.id]) {
+          const liveUser = users[currentUser.id];
+          // Only update if there are changes to avoid loop, specifically check role/permissions/status
+          if (JSON.stringify(liveUser) !== JSON.stringify(currentUser)) {
+              setCurrentUser(liveUser);
+              localStorage.setItem('dis_user', JSON.stringify(liveUser));
+          }
+      }
+  }, [users, currentUser]);
+
   // Sync with Firebase
   useEffect(() => {
     const refs = {

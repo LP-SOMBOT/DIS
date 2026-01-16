@@ -19,16 +19,34 @@ export const AdminActionSheet: React.FC<AdminActionSheetProps> = ({
   const { users, banUser, unbanUser, toggleUserVerification, deletePost, deleteMessage } = useData();
   
   if (!isOpen || !targetUserId) return null;
+  
+  // Always use the latest data from the context to check permissions/roles
+  const realCurrentUser = users[currentUser.id] || currentUser;
   const targetUser = users[targetUserId];
+  
   if (!targetUser) return null;
 
-  const isSuperAdmin = currentUser.role === 'super_admin';
-  const perms = currentUser.permissions || {};
-  
-  // Permissions Logic
-  const canBan = isSuperAdmin || perms.manageUsers;
-  const canVerify = isSuperAdmin || perms.verifyUsers;
-  const canDelete = isSuperAdmin || perms.managePosts;
+  // Role Hierarchy & Permissions
+  const isTargetAdmin = targetUser.role === 'admin' || targetUser.role === 'super_admin';
+  const isCurrentSuper = realCurrentUser.role === 'super_admin';
+  const isCurrentAdmin = realCurrentUser.role === 'admin';
+
+  // Admins cannot action other admins unless they are Super Admin
+  const canActionUser = isCurrentSuper || (!isTargetAdmin && isCurrentAdmin);
+
+  const perms = realCurrentUser.permissions || {
+      managePosts: false,
+      manageDistricts: false,
+      manageUsers: false,
+      verifyUsers: false
+  };
+
+  // Define Capabilities
+  const canBan = canActionUser && (isCurrentSuper || perms.manageUsers);
+  const canVerify = canActionUser && (isCurrentSuper || perms.verifyUsers);
+  // Deleting content is usually allowed for admins regardless of target user role, unless specified otherwise.
+  // We'll allow admins to delete content if they have managePosts permission.
+  const canDelete = isCurrentSuper || (isCurrentAdmin && perms.managePosts);
 
   const handleBan = async () => {
      if (targetUser.status === 'banned') await unbanUser(targetUserId);
@@ -88,7 +106,7 @@ export const AdminActionSheet: React.FC<AdminActionSheetProps> = ({
                         <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shadow-sm">
                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
                         </div>
-                        <span className="flex-1 text-left">{targetUser.status === 'banned' ? 'Unban User' : 'Ban User'}</span>
+                        <span className="flex-1 text-left">{targetUser.status === 'banned' ? 'Unban User' : 'Ban/Block User'}</span>
                     </button>
                 )}
 

@@ -30,6 +30,7 @@ export const HomeFeed: React.FC<HomeFeedProps> = ({ user }) => {
   };
 
   const openAdminAction = (userId: string, contentId?: string, type: 'post' | 'user_only' = 'user_only') => {
+      // Check permission locally to show UI, but AdminActionSheet has final strict check
       if (user?.role === 'admin' || user?.role === 'super_admin') {
           setAdminAction({ userId, contentId, type });
       }
@@ -163,6 +164,13 @@ const PostCard: React.FC<{
       }
   };
 
+  const handleAdminOptions = () => {
+      if (isAdmin) {
+          onAdminAction(post.author.id, post.id, 'post');
+          setShowOptions(false);
+      }
+  };
+
   return (
     <div 
         onContextMenu={handlePostContextMenu}
@@ -195,6 +203,9 @@ const PostCard: React.FC<{
                 <div className="absolute right-0 top-10 bg-white shadow-xl border border-slate-100 rounded-xl overflow-hidden z-20 w-32 animate-fadeIn">
                     {(isAdmin || isOwner) && (
                         <button onClick={() => onDelete(post.id)} className="w-full text-left px-4 py-3 text-red-500 text-xs font-bold hover:bg-red-50">Delete</button>
+                    )}
+                    {isAdmin && (
+                        <button onClick={handleAdminOptions} className="w-full text-left px-4 py-3 text-slate-700 text-xs font-bold hover:bg-slate-50">Admin Options</button>
                     )}
                     <button 
                       onClick={handleReport} 
