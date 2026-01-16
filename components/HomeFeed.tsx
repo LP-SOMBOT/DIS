@@ -110,13 +110,29 @@ const PostCard: React.FC<{
   const [sliderPos, setSliderPos] = useState(50);
   const [showOptions, setShowOptions] = useState(false);
   const [hasReported, setHasReported] = useState(false);
+  
+  // Optimistic UI for Likes
+  const [optimisticLike, setOptimisticLike] = useState<{ liked: boolean, count: number } | null>(null);
+  
   const optionsRef = useRef<HTMLDivElement>(null);
   
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
   const isOwner = currentUser?.id === post.author.id;
   
-  // Check if current user has liked the post
-  const isLiked = currentUser && post.likedBy ? post.likedBy[currentUser.id] : false;
+  // Derived state from props or optimistic state
+  const isLiked = optimisticLike ? optimisticLike.liked : (currentUser && post.likedBy ? post.likedBy[currentUser.id] : false);
+  const likeCount = optimisticLike ? optimisticLike.count : post.likes;
+
+  useEffect(() => {
+     // Reset optimistic state when real data changes to match (sync)
+     if (optimisticLike) {
+         const realLiked = currentUser && post.likedBy ? !!post.likedBy[currentUser.id] : false;
+         const realCount = post.likes;
+         if (realLiked === optimisticLike.liked && realCount === optimisticLike.count) {
+             setOptimisticLike(null);
+         }
+     }
+  }, [post.likes, post.likedBy, currentUser, optimisticLike]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -169,6 +185,16 @@ const PostCard: React.FC<{
           onAdminAction(post.author.id, post.id, 'post');
           setShowOptions(false);
       }
+  };
+
+  const handleLike = () => {
+      // Set Optimistic State immediately
+      const newLiked = !isLiked;
+      const newCount = likeCount + (newLiked ? 1 : -1);
+      setOptimisticLike({ liked: newLiked, count: newCount });
+      
+      // Trigger API
+      onLike(post.id);
   };
 
   return (
@@ -250,13 +276,13 @@ const PostCard: React.FC<{
       <div className="p-4 border-t border-slate-50 flex items-center justify-between">
         <div className="flex items-center gap-6">
           <button 
-            onClick={() => onLike(post.id)} 
+            onClick={handleLike} 
             className={`flex items-center gap-2 font-bold text-xs transition-colors ${isLiked ? 'text-red-500' : 'text-slate-500'}`}
           >
             <svg className={`w-6 h-6 transition-transform active:scale-75 ${isLiked ? 'fill-current' : 'fill-none'}`} viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
             </svg>
-            <span>{post.likes}</span>
+            <span>{likeCount}</span>
           </button>
 
           <button 
@@ -281,6 +307,7 @@ const CommentModal: React.FC<{ postId: string; onClose: () => void; currentUser?
     const commentsEndRef = useRef<HTMLDivElement>(null);
     const [dragOffset, setDragOffset] = useState(0);
     const startY = useRef(0);
+    const [isPosting, setIsPosting] = useState(false);
 
     const scrollToBottom = () => {
         commentsEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -292,9 +319,11 @@ const CommentModal: React.FC<{ postId: string; onClose: () => void; currentUser?
 
     const handleSubmitComment = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!commentText.trim()) return;
+        if (!commentText.trim() || isPosting) return;
+        setIsPosting(true);
         await addComment(postId, commentText);
         setCommentText('');
+        setIsPosting(false);
     };
 
     const handleTouchStart = (e: React.TouchEvent) => {
@@ -329,27 +358,28 @@ const CommentModal: React.FC<{ postId: string; onClose: () => void; currentUser?
     return (
         <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end justify-center animate-fadeIn">
             <div 
-                className="bg-white w-full max-w-lg rounded-t-[32px] h-[85vh] flex flex-col shadow-2xl transition-transform duration-200"
+                className="bg-white w-full max-w-lg rounded-t-[32px] h-[85vh] flex flex-col shadow-2xl transition-transform duration-200 overflow-hidden"
                 style={{ transform: `translateY(${dragOffset}px)` }}
             >
                 {/* Drag Handle */}
                 <div 
-                    className="flex justify-center p-4 cursor-grab active:cursor-grabbing border-b border-slate-50"
+                    className="flex justify-center p-4 cursor-grab active:cursor-grabbing border-b border-slate-50 shrink-0"
                     onTouchStart={handleTouchStart}
                     onTouchMove={handleTouchMove}
                     onTouchEnd={handleTouchEnd}
-                    onClick={onClose} // Fallback for desktop clicking the top area
+                    onClick={onClose} 
                 >
                     <div className="w-12 h-1.5 bg-slate-200 rounded-full"></div>
                 </div>
 
-                <div className="px-4 pb-2 border-b border-slate-50 flex items-center justify-between">
+                <div className="px-4 pb-2 border-b border-slate-50 flex items-center justify-between shrink-0">
                     <h3 className="font-bold text-slate-900 text-lg">Comments <span className="text-slate-400 font-normal text-sm">({comments.length})</span></h3>
                     <button onClick={onClose} className="p-2 bg-slate-50 rounded-full text-slate-500 hover:bg-slate-200 transition-colors">
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
                     </button>
                 </div>
                 
+                {/* Scrollable List */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-5 bg-white">
                     {comments.length === 0 && (
                         <div className="flex flex-col items-center justify-center h-full text-slate-300 space-y-2">
@@ -404,23 +434,28 @@ const CommentModal: React.FC<{ postId: string; onClose: () => void; currentUser?
                     <div ref={commentsEndRef} />
                 </div>
 
-                <div className="p-4 bg-white border-t border-slate-100 pb-8">
+                <div className="p-4 bg-white border-t border-slate-100 pb-8 shrink-0">
                     <form onSubmit={handleSubmitComment} className="flex gap-2 items-end">
                         <textarea
                             value={commentText}
                             onChange={e => setCommentText(e.target.value)}
                             placeholder="Write a comment..."
                             rows={1}
-                            className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:bg-white transition-all resize-none max-h-32 font-medium text-slate-900 placeholder:text-slate-400"
+                            disabled={isPosting}
+                            className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:bg-white transition-all resize-none max-h-32 font-medium text-slate-900 placeholder:text-slate-400 disabled:opacity-50"
                         />
                         <button
                             type="submit"
-                            disabled={!commentText.trim()}
+                            disabled={!commentText.trim() || isPosting}
                             className="bg-emerald-600 text-white p-3 rounded-xl font-bold shadow-lg hover:bg-emerald-700 disabled:opacity-50 disabled:shadow-none transition-all flex items-center justify-center shrink-0"
                         >
-                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                            </svg>
+                            {isPosting ? (
+                                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            ) : (
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                </svg>
+                            )}
                         </button>
                     </form>
                 </div>
@@ -441,6 +476,7 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({ user, onClose, onCrea
   const [image, setImage] = useState<string | null>(null);
   const [beforeImage, setBeforeImage] = useState<string | null>(null);
   const [afterImage, setAfterImage] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => {
     const file = e.target.files?.[0];
@@ -453,17 +489,18 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({ user, onClose, onCrea
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    setIsLoading(true);
     if (postType === 'standard') {
       if (!description.trim() && !image) return;
-      onCreate({
+      await onCreate({
         type: 'standard',
         description,
         image: image || undefined,
       });
     } else {
       if (!beforeImage || !afterImage) return;
-      onCreate({
+      await onCreate({
         type: 'awareness',
         title: 'Before and after',
         description,
@@ -471,6 +508,7 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({ user, onClose, onCrea
         afterImg: afterImage,
       });
     }
+    setIsLoading(false);
   };
 
   const canSubmit = postType === 'standard' 
@@ -522,7 +560,14 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({ user, onClose, onCrea
           )}
         </div>
 
-        <button onClick={handleSubmit} disabled={!canSubmit} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:bg-emerald-700 transition-all disabled:opacity-30">Post</button>
+        <button onClick={handleSubmit} disabled={!canSubmit || isLoading} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:bg-emerald-700 transition-all disabled:opacity-30 flex items-center justify-center gap-2">
+            {isLoading ? (
+                <>
+                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    Posting...
+                </>
+            ) : "Post"}
+        </button>
       </div>
     </div>
   );

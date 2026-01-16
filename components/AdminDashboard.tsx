@@ -101,17 +101,20 @@ const Overview: React.FC = () => {
 };
 
 const DistrictManager: React.FC = () => {
-  const { channels, addDistrict, updateChannel } = useData();
+  const { channels, addDistrict, updateChannel, toggleChannelStatus } = useData();
   const [newDistrict, setNewDistrict] = useState('');
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const handleUpdateChannel = async () => {
       if(editingChannel) {
+          setLoading(true);
           await updateChannel(editingChannel.id, {
               name: editingChannel.name,
               status: editingChannel.status,
               avatar: editingChannel.avatar
           });
+          setLoading(false);
           setEditingChannel(null);
       }
   };
@@ -127,6 +130,15 @@ const DistrictManager: React.FC = () => {
       }
   };
 
+  const add = async () => {
+      if(newDistrict) {
+          setLoading(true);
+          await addDistrict(newDistrict);
+          setNewDistrict('');
+          setLoading(false);
+      }
+  }
+
   return (
     <div className="space-y-6 animate-fadeIn">
       <h2 className="text-3xl font-black text-slate-900">Districts & Groups</h2>
@@ -138,15 +150,17 @@ const DistrictManager: React.FC = () => {
               <input 
                  value={newDistrict} 
                  onChange={e => setNewDistrict(e.target.value)}
-                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:border-emerald-500 font-bold text-slate-800"
+                 disabled={loading}
+                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:border-emerald-500 font-bold text-slate-800 disabled:opacity-50"
                  placeholder="e.g. Deg. Warta Nabada"
               />
           </div>
           <button 
-             onClick={() => { if(newDistrict) { addDistrict(newDistrict); setNewDistrict(''); }}}
-             className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3.5 rounded-xl font-bold transition-colors shadow-lg shadow-emerald-200"
+             onClick={add}
+             disabled={loading}
+             className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3.5 rounded-xl font-bold transition-colors shadow-lg shadow-emerald-200 disabled:opacity-50"
           >
-              Add District
+              {loading ? 'Adding...' : 'Add District'}
           </button>
       </div>
 
@@ -238,8 +252,10 @@ const DistrictManager: React.FC = () => {
                           </div>
                       </div>
                       <div className="flex gap-3 pt-4">
-                          <button onClick={() => setEditingChannel(null)} className="flex-1 py-3 font-bold text-slate-500 hover:bg-slate-50 rounded-xl">Cancel</button>
-                          <button onClick={handleUpdateChannel} className="flex-1 py-3 font-bold bg-emerald-600 text-white rounded-xl shadow-lg hover:bg-emerald-700">Save Changes</button>
+                          <button onClick={() => setEditingChannel(null)} disabled={loading} className="flex-1 py-3 font-bold text-slate-500 hover:bg-slate-50 rounded-xl disabled:opacity-50">Cancel</button>
+                          <button onClick={handleUpdateChannel} disabled={loading} className="flex-1 py-3 font-bold bg-emerald-600 text-white rounded-xl shadow-lg hover:bg-emerald-700 disabled:opacity-50">
+                              {loading ? 'Saving...' : 'Save Changes'}
+                          </button>
                       </div>
                   </div>
               </div>
@@ -254,6 +270,7 @@ const UserManager: React.FC = () => {
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<'all' | 'admin' | 'banned'>('all');
     const [permissionUser, setPermissionUser] = useState<User | null>(null);
+    const [loadingActionId, setLoadingActionId] = useState<string | null>(null);
 
     const filteredUsers = (Object.values(users) as User[]).filter(u => {
         const matchesSearch = u.name.toLowerCase().includes(search.toLowerCase()) || u.id.includes(search);
@@ -270,6 +287,12 @@ const UserManager: React.FC = () => {
             await updateUserRole(permissionUser.id, role, perms);
             setPermissionUser(null);
         }
+    };
+
+    const wrapAction = async (id: string, fn: () => Promise<void>) => {
+        setLoadingActionId(id);
+        await fn();
+        setLoadingActionId(null);
     };
 
     return (
@@ -339,8 +362,9 @@ const UserManager: React.FC = () => {
                                     <td className="p-4">
                                         <div className="flex items-center gap-2">
                                             <button 
-                                                onClick={() => toggleUserVerification(u.id)}
-                                                className={`p-2 rounded-lg transition-colors ${u.isVerified ? 'text-blue-600 bg-blue-50' : 'text-slate-400 hover:bg-slate-100'}`}
+                                                onClick={() => wrapAction(u.id, () => toggleUserVerification(u.id))}
+                                                disabled={loadingActionId === u.id}
+                                                className={`p-2 rounded-lg transition-colors disabled:opacity-50 ${u.isVerified ? 'text-blue-600 bg-blue-50' : 'text-slate-400 hover:bg-slate-100'}`}
                                                 title="Toggle Verification"
                                             >
                                                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -354,16 +378,18 @@ const UserManager: React.FC = () => {
                                             </button>
                                             {u.status === 'active' ? (
                                                 <button 
-                                                    onClick={() => banUser(u.id)}
-                                                    className="p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                                                    onClick={() => wrapAction(u.id, () => banUser(u.id))}
+                                                    disabled={loadingActionId === u.id}
+                                                    className="p-2 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors disabled:opacity-50"
                                                     title="Ban User"
                                                 >
                                                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
                                                 </button>
                                             ) : (
                                                 <button 
-                                                    onClick={() => unbanUser(u.id)}
-                                                    className="p-2 rounded-lg text-red-600 bg-red-50 hover:bg-red-100 transition-colors"
+                                                    onClick={() => wrapAction(u.id, () => unbanUser(u.id))}
+                                                    disabled={loadingActionId === u.id}
+                                                    className="p-2 rounded-lg text-red-600 bg-red-50 hover:bg-red-100 transition-colors disabled:opacity-50"
                                                     title="Unban User"
                                                 >
                                                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
@@ -397,6 +423,13 @@ const PermissionsModal: React.FC<{ user: User; onClose: () => void; onSave: (rol
         manageUsers: false,
         verifyUsers: false
     });
+    const [saving, setSaving] = useState(false);
+
+    const handleSave = async () => {
+        setSaving(true);
+        await onSave(role, perms);
+        setSaving(false);
+    }
 
     return (
         <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -424,8 +457,10 @@ const PermissionsModal: React.FC<{ user: User; onClose: () => void; onSave: (rol
                     )}
                 </div>
                 <div className="p-6 border-t border-slate-50 flex gap-3">
-                    <button onClick={onClose} className="flex-1 py-3 font-bold text-slate-500 hover:bg-slate-50 rounded-xl">Cancel</button>
-                    <button onClick={() => onSave(role, perms)} className="flex-1 py-3 font-bold bg-slate-900 text-white rounded-xl shadow-lg hover:bg-slate-800">Save</button>
+                    <button onClick={onClose} disabled={saving} className="flex-1 py-3 font-bold text-slate-500 hover:bg-slate-50 rounded-xl disabled:opacity-50">Cancel</button>
+                    <button onClick={handleSave} disabled={saving} className="flex-1 py-3 font-bold bg-slate-900 text-white rounded-xl shadow-lg hover:bg-slate-800 disabled:opacity-50">
+                        {saving ? 'Saving...' : 'Save'}
+                    </button>
                 </div>
             </div>
         </div>
@@ -447,11 +482,13 @@ const Toggle: React.FC<{ label: string; checked: boolean; onChange: (v: boolean)
 const ReportsManager: React.FC = () => {
     const { reports, deletePost, deleteMessage, dismissReport, resolveReport } = useData();
     const [activeReport, setActiveReport] = useState<Report | null>(null);
+    const [loading, setLoading] = useState(false);
 
     const pending = reports.filter(r => r.status === 'pending');
 
     const handleAction = async (action: 'remove' | 'dismiss' | 'resolve') => {
         if (!activeReport) return;
+        setLoading(true);
         if (action === 'remove') {
             if (activeReport.type === 'post') await deletePost(activeReport.targetId);
             await resolveReport(activeReport.id);
@@ -460,6 +497,7 @@ const ReportsManager: React.FC = () => {
         } else if (action === 'resolve') {
             await resolveReport(activeReport.id);
         }
+        setLoading(false);
         setActiveReport(null);
     };
 
@@ -515,8 +553,8 @@ const ReportsManager: React.FC = () => {
                             
                             <p className="text-sm font-bold text-slate-700 mb-2">Action:</p>
                             <div className="grid grid-cols-2 gap-3">
-                                <button onClick={() => handleAction('remove')} className="p-3 bg-red-600 text-white rounded-xl font-bold text-sm shadow hover:bg-red-700">Remove Content</button>
-                                <button onClick={() => handleAction('dismiss')} className="p-3 bg-slate-200 text-slate-700 rounded-xl font-bold text-sm hover:bg-slate-300">Dismiss Report</button>
+                                <button onClick={() => handleAction('remove')} disabled={loading} className="p-3 bg-red-600 text-white rounded-xl font-bold text-sm shadow hover:bg-red-700 disabled:opacity-50">Remove Content</button>
+                                <button onClick={() => handleAction('dismiss')} disabled={loading} className="p-3 bg-slate-200 text-slate-700 rounded-xl font-bold text-sm hover:bg-slate-300 disabled:opacity-50">Dismiss Report</button>
                             </div>
                         </div>
                     </div>
@@ -592,7 +630,6 @@ export const AdminDashboard: React.FC = () => {
 };
 
 const StatCard: React.FC<{ label: string; value: number; icon: string; color: string }> = ({ label, value, icon, color }) => {
-    // Icon mapping simplified for the example
     let d = "";
     if (icon === 'users') d = "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z";
     if (icon === 'map') d = "M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z";
@@ -600,15 +637,15 @@ const StatCard: React.FC<{ label: string; value: number; icon: string; color: st
     if (icon === 'alert') d = "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z";
 
     return (
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
-            <div>
-                <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">{label}</p>
-                <p className="text-3xl font-black text-slate-900">{value}</p>
-            </div>
-            <div className={`w-12 h-12 rounded-2xl ${color} flex items-center justify-center text-white shadow-lg shadow-blue-500/20`}>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4 hover:shadow-md transition-shadow">
+            <div className={`w-12 h-12 rounded-xl ${color} text-white flex items-center justify-center shadow-lg shadow-emerald-100`}>
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={d} />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d={d} />
                 </svg>
+            </div>
+            <div>
+                <p className="text-xs font-bold uppercase text-slate-400 tracking-wider">{label}</p>
+                <p className="text-2xl font-black text-slate-900">{value}</p>
             </div>
         </div>
     );
