@@ -1,9 +1,8 @@
-
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { database } from '../firebase';
-import { ref, onValue, set, push, update, remove, get, child, runTransaction } from 'firebase/database';
-import { User, Channel, Message, HomePost, District, Report, Comment, UserPermissions, Role } from '../types';
-import { CHANNELS as INITIAL_CHANNELS, MOCK_FEED } from '../constants';
+import { ref, onValue, set, push, update, remove, get, runTransaction } from 'firebase/database';
+import { User, Channel, Message, HomePost, District, Report, Comment, UserPermissions, Role, ToastMessage } from '../types';
+import { ToastContainer } from '../components/Toast';
 
 interface DataContextType {
   currentUser: User | null;
@@ -15,6 +14,7 @@ interface DataContextType {
   reports: Report[];
   postComments: Record<string, Comment[]>;
   unreadCounts: Record<string, number>;
+  onlineUsersCount: (channel: Channel | undefined) => number;
   registerUser: (user: Partial<User>) => Promise<void>;
   sendMessage: (channelId: string, text: string, type: 'text' | 'image' | 'work_done', imageBase64?: string) => Promise<void>;
   createPost: (post: Partial<HomePost>) => Promise<void>;
@@ -24,6 +24,7 @@ interface DataContextType {
   addDistrict: (name: string) => Promise<void>;
   banUser: (userId: string) => Promise<void>;
   unbanUser: (userId: string) => Promise<void>;
+  blockUserFromChannel: (channelId: string, userId: string) => Promise<void>;
   toggleUserVerification: (userId: string) => Promise<void>;
   updateUserRole: (userId: string, role: Role, permissions?: UserPermissions) => Promise<void>;
   updateChannel: (channelId: string, data: Partial<Channel>) => Promise<void>;
@@ -36,6 +37,7 @@ interface DataContextType {
   markChannelAsRead: (channelId: string) => void;
   login: (userId: string) => void;
   logout: () => void;
+  showToast: (type: 'success' | 'error' | 'info', message: string) => void;
 }
 
 const DataContext = createContext<DataContextType>({} as DataContextType);
@@ -55,12 +57,37 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [districts, setDistricts] = useState<District[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [postComments, setPostComments] = useState<Record<string, Comment[]>>({});
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [lastReadTimes, setLastReadTimes] = useState<Record<string, number>>(() => {
     const saved = localStorage.getItem('dis_last_read');
     return saved ? JSON.parse(saved) : {};
   });
 
-  // Calculate unread counts based on messages and lastReadTimes
+  const showToast = (type: 'success' | 'error' | 'info', message: string) => {
+    const id = Date.now().toString();
+    setToasts(prev => [...prev, { id, type, message }]);
+  };
+
+  const removeToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
+
+  // Update online status periodically
+  useEffect(() => {
+    if (!currentUser) return;
+    
+    const updatePresence = () => {
+       update(ref(database, `app/users/${currentUser.id}`), {
+          lastSeen: Date.now()
+       });
+    };
+
+    const interval = setInterval(updatePresence, 60000); // Every minute
+    updatePresence(); // Initial call
+    return () => clearInterval(interval);
+  }, [currentUser]);
+
+  // Calculate unread counts
   const unreadCounts = React.useMemo(() => {
     const counts: Record<string, number> = {};
     channels.forEach(ch => {
@@ -71,46 +98,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return counts;
   }, [messages, lastReadTimes, channels, currentUser]);
 
-  // Load cache on mount
-  useEffect(() => {
-    const cachedUsers = localStorage.getItem('app_users');
-    const cachedChannels = localStorage.getItem('app_channels');
-    const cachedMessages = localStorage.getItem('app_messages');
-    const cachedPosts = localStorage.getItem('app_posts');
-    const cachedDistricts = localStorage.getItem('app_districts');
-    
-    if (cachedUsers) setUsers(JSON.parse(cachedUsers));
-    if (cachedChannels) setChannels(JSON.parse(cachedChannels));
-    
-    if (cachedMessages) {
-      const parsedMessages = JSON.parse(cachedMessages);
-      const hydratedMessages: Record<string, Message[]> = {};
-      Object.keys(parsedMessages).forEach(channelId => {
-        hydratedMessages[channelId] = parsedMessages[channelId].map((msg: any) => ({
-          ...msg,
-          timestamp: new Date(msg.createdAt)
-        }));
-      });
-      setMessages(hydratedMessages);
-    }
-
-    if (cachedPosts) setPosts(JSON.parse(cachedPosts));
-    if (cachedDistricts) setDistricts(JSON.parse(cachedDistricts));
-  }, []);
-
-  // Sync currentUser with live users data to ensure permissions are up to date
-  useEffect(() => {
-      if (currentUser && users[currentUser.id]) {
-          const liveUser = users[currentUser.id];
-          // Only update if there are changes to avoid loop, specifically check role/permissions/status
-          if (JSON.stringify(liveUser) !== JSON.stringify(currentUser)) {
-              setCurrentUser(liveUser);
-              localStorage.setItem('dis_user', JSON.stringify(liveUser));
-          }
+  const onlineUsersCount = (channel: Channel | undefined) => {
+      if (!channel) return 0;
+      const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+      const userList = Object.values(users) as User[];
+      const activeUsers = userList.filter(u => u.lastSeen && u.lastSeen > fiveMinutesAgo);
+      
+      if (channel.type === 'main') {
+          return activeUsers.length;
       }
-  }, [users, currentUser]);
+      return activeUsers.filter(u => u.district === channel.district).length;
+  };
 
-  // Sync with Firebase
+  // Sync Logic
   useEffect(() => {
     const refs = {
       users: ref(database, 'app/users'),
@@ -131,7 +131,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubChannels = onValue(refs.channels, (snapshot) => {
       const val = snapshot.val();
       if (val) {
-        const list = Object.values(val) as Channel[];
+        let list = Object.values(val) as Channel[];
+        // Sort: Main first, then by lastActivity (most recent first)
+        list = list.sort((a, b) => {
+            if (a.type === 'main') return -1;
+            if (b.type === 'main') return 1;
+            return (b.lastActivity || b.createdAt) - (a.lastActivity || a.createdAt);
+        });
         setChannels(list);
         localStorage.setItem('app_channels', JSON.stringify(list));
       } else {
@@ -159,6 +165,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubPosts = onValue(refs.posts, (snapshot) => {
       const val = snapshot.val();
       if (val) {
+        // Careful mapping to ensure active status is respected and data is robust
         const list = Object.values(val).map((p: any) => ({
           ...p,
           date: new Date(p.createdAt).toLocaleDateString(),
@@ -169,7 +176,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           author: {
              id: p.authorId,
              name: p.authorName,
-             avatar: p.authorName[0],
+             avatar: p.authorName?.[0] || '?',
              district: p.district,
              isVerified: users[p.authorId]?.isVerified || false 
           },
@@ -225,7 +232,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       unsubReports();
       unsubComments();
     };
-  }, [users]); 
+  }, [users]); // Depend on users to keep author verification up to date
 
   const seedChannels = async () => {
     const mainChannel: Channel = {
@@ -234,7 +241,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       icon: 'M',
       type: 'main',
       status: 'open',
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      lastActivity: Date.now()
     };
     await set(ref(database, 'app/channels/main'), mainChannel);
     
@@ -248,7 +256,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
          type: 'district',
          district: d,
          status: 'open',
-         createdAt: Date.now()
+         createdAt: Date.now(),
+         lastActivity: Date.now()
        };
        await set(ref(database, `app/channels/${id}`), chan);
     });
@@ -264,8 +273,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       role: 'user',
       status: 'active',
       isVerified: false,
-      permissions: { managePosts: false, manageDistricts: false, manageUsers: false, verifyUsers: false },
+      permissions: { managePosts: false, manageDistricts: false, manageUsers: false, verifyUsers: false, manageChannels: false },
       createdAt: Date.now(),
+      lastSeen: Date.now(),
       ...userData
     };
     if (newUser.avatarBase64 === undefined) delete newUser.avatarBase64;
@@ -318,7 +328,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await set(newMessageRef, message);
     
     update(ref(database, `app/channels/${channelId}`), {
-      lastMessage: type === 'image' ? 'Sent an image' : text
+      lastMessage: type === 'image' ? 'Sent an image' : text,
+      lastActivity: Date.now()
     });
     markChannelAsRead(channelId);
   };
@@ -345,15 +356,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       comments: 0
     };
     await set(newPostRef, post);
+    showToast('success', 'Post created successfully!');
   };
 
   const toggleLike = async (postId: string) => {
     if (!currentUser) return;
     const postRef = ref(database, `app/posts/${postId}`);
+    
+    // We do NOT modify the 'active' status or 'visibility' here to prevent the post from disappearing from the feed.
     await runTransaction(postRef, (post) => {
       if (post) {
         if (post.likedBy && post.likedBy[currentUser.id]) {
           post.likes = (post.likes || 1) - 1;
+          if (post.likes < 0) post.likes = 0;
           post.likedBy[currentUser.id] = null;
         } else {
           post.likes = (post.likes || 0) + 1;
@@ -418,17 +433,28 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       type: 'district',
       district: name,
       status: 'open',
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      lastActivity: Date.now()
     };
     await set(ref(database, `app/channels/${id}`), chan);
+    showToast('success', 'District added successfully');
   };
 
   const banUser = async (userId: string) => {
     await update(ref(database, `app/users/${userId}`), { status: 'banned' });
+    showToast('success', 'User has been banned globally');
   };
 
   const unbanUser = async (userId: string) => {
     await update(ref(database, `app/users/${userId}`), { status: 'active' });
+    showToast('success', 'User has been unbanned');
+  };
+
+  const blockUserFromChannel = async (channelId: string, userId: string) => {
+      await update(ref(database, `app/channels/${channelId}/blockedUsers`), {
+          [userId]: true
+      });
+      showToast('success', 'User blocked from this group');
   };
 
   const toggleUserVerification = async (userId: string) => {
@@ -437,6 +463,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if(userSnap.exists()) {
           const current = userSnap.val().isVerified || false;
           await update(userRef, { isVerified: !current });
+          showToast('success', `User ${current ? 'unverified' : 'verified'}`);
       }
   };
 
@@ -446,10 +473,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           updates.permissions = permissions;
       }
       await update(ref(database, `app/users/${userId}`), updates);
+      showToast('success', 'User role updated');
   };
 
   const updateChannel = async (channelId: string, data: Partial<Channel>) => {
       await update(ref(database, `app/channels/${channelId}`), data);
+      showToast('success', 'Channel updated');
   };
 
   const deleteMessage = async (channelId: string, messageId: string) => {
@@ -458,14 +487,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       text: "This message was deleted by the admin",
       imageBase64: null 
     });
+    showToast('success', 'Message deleted');
   };
 
   const deletePost = async (postId: string) => {
     await update(ref(database, `app/posts/${postId}`), { active: false });
+    showToast('success', 'Post deleted');
   };
 
   const toggleChannelStatus = async (channelId: string, status: 'open' | 'closed') => {
     await update(ref(database, `app/channels/${channelId}`), { status });
+    showToast('success', `Channel ${status}`);
   };
 
   const submitReport = async (reportData: Partial<Report>) => {
@@ -479,14 +511,17 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       createdAt: Date.now(),
       ...reportData
     });
+    showToast('info', 'Report submitted. Thank you.');
   };
 
   const dismissReport = async (reportId: string) => {
      await update(ref(database, `app/reports/${reportId}`), { status: 'dismissed' });
+     showToast('success', 'Report dismissed');
   };
 
   const resolveReport = async (reportId: string) => {
      await update(ref(database, `app/reports/${reportId}`), { status: 'resolved' });
+     showToast('success', 'Report resolved');
   };
 
   return (
@@ -500,6 +535,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       reports,
       postComments,
       unreadCounts,
+      onlineUsersCount,
       registerUser,
       sendMessage,
       createPost,
@@ -509,6 +545,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addDistrict,
       banUser,
       unbanUser,
+      blockUserFromChannel,
       toggleUserVerification,
       updateUserRole,
       updateChannel,
@@ -520,9 +557,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       resolveReport,
       markChannelAsRead,
       login,
-      logout
+      logout,
+      showToast
     }}>
       {children}
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
     </DataContext.Provider>
   );
 };

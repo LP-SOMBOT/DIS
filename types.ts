@@ -9,6 +9,7 @@ export interface UserPermissions {
   manageDistricts: boolean;
   manageUsers: boolean;
   verifyUsers: boolean;
+  manageChannels: boolean; // New permission for closing/opening groups
 }
 
 export interface User {
@@ -23,6 +24,7 @@ export interface User {
   isVerified?: boolean; 
   permissions: UserPermissions;
   createdAt: number;
+  lastSeen?: number; // For online status
 }
 
 export interface Message {
@@ -76,13 +78,15 @@ export interface Channel {
   id: string;
   name: string;
   icon: string;
-  avatar?: string; // Added for custom group image
+  avatar?: string;
   lastMessage?: string;
   unread?: number;
   type: 'main' | 'district';
   district?: string;
   status: 'open' | 'closed';
   createdAt: number;
+  blockedUsers?: Record<string, boolean>; // Local blocking
+  lastActivity?: number; // For sorting
 }
 
 export interface Report {
@@ -105,4 +109,10 @@ export interface Comment {
   timestamp: number;
   likes?: number;
   likedBy?: Record<string, boolean>;
+}
+
+export interface ToastMessage {
+  id: string;
+  type: 'success' | 'error' | 'info';
+  message: string;
 }

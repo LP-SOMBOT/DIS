@@ -12,7 +12,7 @@ interface ChatViewProps {
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setActiveChannelId }) => {
-  const { channels, messages, sendMessage, deleteMessage, users, unreadCounts, markChannelAsRead } = useData();
+  const { channels, messages, sendMessage, deleteMessage, users, unreadCounts, markChannelAsRead, onlineUsersCount } = useData();
   const [inputValue, setInputValue] = useState('');
   const [currentView, setCurrentView] = useState<'list' | 'chat' | 'details'>('list');
   const [showWorkDoneModal, setShowWorkDoneModal] = useState(false);
@@ -20,6 +20,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
   const [workImage, setWorkImage] = useState<string | null>(null);
   const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
   const [profileActionUser, setProfileActionUser] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
   
   // Admin Action State
   const [adminAction, setAdminAction] = useState<{
@@ -32,6 +33,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
   const chatEndRef = useRef<HTMLDivElement>(null);
   const shouldScrollToBottom = useRef(true);
 
+  // Filter channels based on access and sort order is handled in DataContext
   const visibleChannels = channels.filter(channel => 
     channel.type === 'main' || 
     channel.district === user.district || 
@@ -41,6 +43,9 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
 
   const activeMessages = messages[activeChannelId] || [];
   const activeChannel = channels.find(c => c.id === activeChannelId);
+
+  // Check if user is blocked in this channel
+  const isBlockedInChannel = activeChannel?.blockedUsers?.[user.id];
 
   // Improved Scrolling Logic
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
@@ -53,12 +58,10 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
              scrollToBottom('auto');
              shouldScrollToBottom.current = false;
         } else {
-             // If user is near bottom, auto scroll on new message
              const container = chatContainerRef.current;
              if (container) {
                  const { scrollTop, scrollHeight, clientHeight } = container;
-                 // If within 150px of bottom, scroll
-                 if (scrollHeight - scrollTop - clientHeight < 150) {
+                 if (scrollHeight - scrollTop - clientHeight < 200) {
                      scrollToBottom();
                  }
              }
@@ -67,24 +70,27 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
     }
   }, [activeMessages.length, activeChannelId, currentView]);
 
-  // Reset scroll flag when changing channel
   useEffect(() => {
       shouldScrollToBottom.current = true;
   }, [activeChannelId]);
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim()) return;
+    if (!inputValue.trim() || isSending || isBlockedInChannel) return;
+    setIsSending(true);
     await sendMessage(activeChannelId, inputValue, 'text');
     setInputValue('');
+    setIsSending(false);
     setTimeout(() => scrollToBottom(), 100);
   };
 
   const handleSendWorkDone = async () => {
-    if (!workText.trim() || !workImage) return;
+    if (!workText.trim() || !workImage || isSending) return;
+    setIsSending(true);
     await sendMessage(activeChannelId, workText, 'work_done', workImage);
     setWorkText('');
     setWorkImage(null);
     setShowWorkDoneModal(false);
+    setIsSending(false);
     setTimeout(() => scrollToBottom(), 100);
   };
 
@@ -105,7 +111,6 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
   };
 
   const handleAdminUserAction = (userId: string) => {
-     // Check if current user is admin/super_admin using live data check in ActionSheet
      setAdminAction({ userId, type: 'user_only' });
   };
 
@@ -143,7 +148,8 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
              const channelMessages = messages[chan.id] || [];
              const lastMsg = channelMessages.length > 0 ? channelMessages[channelMessages.length - 1] : null;
              const unread = unreadCounts[chan.id] || 0;
-             
+             const activeCount = onlineUsersCount(chan);
+
              let previewText = 'No messages yet';
              if (lastMsg) {
                  const senderName = lastMsg.senderId === user.id ? 'You' : lastMsg.senderName.split(' ')[0];
@@ -167,6 +173,11 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
                       <div className="w-full h-full bg-emerald-100 flex items-center justify-center font-bold text-emerald-600 rounded-full">{chan.icon}</div>
                    )}
                 </div>
+                {activeCount > 0 && (
+                     <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-0.5">
+                         <div className="w-3 h-3 bg-emerald-500 rounded-full border border-white"></div>
+                     </div>
+                )}
               </div>
 
               <div className="flex-1 text-left overflow-hidden">
@@ -197,27 +208,24 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
     );
   }
 
-  // Details View (Group Profile)
+  // Details View
   if (currentView === 'details') {
     const groupMembers = (Object.values(users) as User[]).filter(u => 
       u.district === activeChannel?.district || activeChannel?.type === 'main'
     ).sort((a, b) => {
-        // Sort admins first
         const aRole = (a.role === 'admin' || a.role === 'super_admin') ? 2 : 1;
         const bRole = (b.role === 'admin' || b.role === 'super_admin') ? 2 : 1;
         return bRole - aRole;
     });
 
-    const onlineCount = Math.max(1, Math.floor(groupMembers.length * 0.3) + 1);
+    const activeCount = onlineUsersCount(activeChannel);
     const currentUserIsAdmin = user.role === 'admin' || user.role === 'super_admin';
 
     return (
       <div className="flex flex-col h-full bg-slate-50 animate-fadeIn">
-        {/* Header Image/Pattern */}
         <div className="h-40 bg-emerald-600 relative overflow-hidden">
           <div className="absolute inset-0 bg-black/20"></div>
           <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
-          
           <button 
             onClick={() => setCurrentView('chat')}
             className="absolute top-4 left-4 p-2 bg-white/20 hover:bg-white/30 backdrop-blur-md rounded-full text-white transition-colors z-10"
@@ -228,7 +236,6 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
           </button>
         </div>
 
-        {/* Group Info Card */}
         <div className="px-6 -mt-12 relative z-10 mb-6">
           <div className="bg-white rounded-3xl shadow-lg p-6 flex flex-col items-center">
             <div className="w-24 h-24 rounded-full border-4 border-white shadow-md -mt-16 mb-4 bg-emerald-50 flex items-center justify-center overflow-hidden">
@@ -252,14 +259,13 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
                 <div className="text-[10px] uppercase text-slate-400 font-bold">Members</div>
               </div>
               <div className="text-center">
-                <div className="text-xl font-black text-slate-900">{onlineCount}</div>
-                <div className="text-[10px] uppercase text-slate-400 font-bold">Online</div>
+                <div className="text-xl font-black text-slate-900 text-emerald-600">{activeCount}</div>
+                <div className="text-[10px] uppercase text-slate-400 font-bold">Online Now</div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Members List */}
         <div className="flex-1 overflow-y-auto px-6 pb-6">
           <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4 ml-2">Group Members</h3>
           <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden min-h-[200px]">
@@ -293,7 +299,6 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" /></svg>
                         </button>
                     )}
-                    {/* Inline Action Menu */}
                     {profileActionUser === u.id && canAction && (
                         <div className="absolute right-0 top-8 w-32 bg-white shadow-xl rounded-xl overflow-hidden border border-slate-100 z-20 animate-fadeIn">
                              <button 
@@ -312,6 +317,8 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
       </div>
     );
   }
+
+  const activeCount = onlineUsersCount(activeChannel);
 
   return (
     <div className="flex flex-col h-full bg-white relative animate-fadeIn overflow-hidden">
@@ -335,8 +342,9 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
         </div>
         <div className="flex-1 min-w-0">
           <h2 className="font-bold text-slate-900 truncate leading-tight">{activeChannel?.name}</h2>
+          <p className="text-[10px] text-emerald-600 font-bold">{activeCount} Online</p>
         </div>
-        <button onClick={() => setCurrentView('details')} className="p-2 text-slate-400">
+        <button onClick={() => setCurrentView('details')} className="p-2 text-slate-400 hover:text-slate-600">
            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
         </button>
       </div>
@@ -353,7 +361,6 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
             return (
               <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group relative`}>
                 
-                {/* Admin Actions Context Menu for Messages */}
                 {isAdmin && (
                     <button 
                         onClick={(e) => { e.stopPropagation(); setActiveMessageId(activeMessageId === msg.id ? null : msg.id); }}
@@ -456,10 +463,10 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
 
               <button
                 onClick={handleSendWorkDone}
-                disabled={!workText.trim() || !workImage}
-                className="w-full bg-emerald-600 text-white py-6 rounded-[32px] font-black text-sm uppercase tracking-[0.2em] shadow-xl hover:bg-emerald-700 disabled:opacity-30"
+                disabled={!workText.trim() || !workImage || isSending}
+                className="w-full bg-emerald-600 text-white py-6 rounded-[32px] font-black text-sm uppercase tracking-[0.2em] shadow-xl hover:bg-emerald-700 disabled:opacity-30 flex justify-center"
               >
-                Dir
+                {isSending ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : 'DIR'}
               </button>
             </div>
           </div>
@@ -467,7 +474,11 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
       )}
 
       <div className="p-3 bg-white border-t flex items-end gap-2">
-         {activeChannel?.status === 'closed' && user.role === 'user' ? (
+         {isBlockedInChannel ? (
+            <div className="w-full p-4 text-center bg-red-50 text-red-500 font-bold rounded-2xl text-sm border border-red-100">
+                You have been blocked from sending messages in this group.
+            </div>
+         ) : activeChannel?.status === 'closed' && user.role === 'user' ? (
             <div className="w-full p-3 text-center bg-slate-100 text-slate-500 font-bold rounded-2xl text-sm">
                 This group is currently closed by admins.
             </div>
@@ -493,12 +504,16 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
                 </div>
                 <button
                   onClick={handleSendMessage}
-                  disabled={!inputValue.trim()}
+                  disabled={!inputValue.trim() || isSending}
                   className="bg-slate-900 text-white p-3 rounded-2xl shadow-lg disabled:opacity-50 transition-all flex items-center justify-center shrink-0"
                 >
-                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-                  </svg>
+                  {isSending ? (
+                      <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                      <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                      </svg>
+                  )}
                 </button>
             </>
          )}
