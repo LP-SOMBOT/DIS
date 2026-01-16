@@ -1,5 +1,5 @@
 
-export type District = string; // Changed to string to support dynamic districts
+export type District = string;
 
 export type Role = 'user' | 'admin' | 'super_admin';
 export type UserStatus = 'active' | 'banned';
@@ -20,6 +20,7 @@ export interface User {
   avatarBase64?: string;
   role: Role;
   status: UserStatus;
+  isVerified?: boolean; // Added Verification
   permissions: UserPermissions;
   createdAt: number;
 }
@@ -29,10 +30,10 @@ export interface Message {
   senderId: string;
   senderName: string;
   text: string;
-  timestamp: Date; // Mapped from createdAt
+  timestamp: Date;
   createdAt: number;
   type: 'text' | 'image' | 'video' | 'work_done';
-  mediaUrl?: string; // Mapped from imageBase64
+  mediaUrl?: string;
   imageBase64?: string;
   channelId: string;
   deleted?: boolean;
@@ -43,19 +44,20 @@ export interface HomePost {
   author: {
     id: string;
     name: string;
-    avatar: string; // Base64 or Initial
+    avatar: string;
     district: District;
+    isVerified?: boolean; // Sync verification
   };
   type: 'awareness' | 'standard';
   title?: string;
   description: string;
-  image?: string; // Base64
-  beforeImg?: string; // Base64
-  afterImg?: string; // Base64
+  image?: string;
+  beforeImg?: string;
+  afterImg?: string;
   date: string;
   timestamp: number;
   likes: number;
-  likedBy?: Record<string, boolean>; // Track who liked the post
+  likedBy?: Record<string, boolean>;
   comments: number;
   visibility: 'public' | 'district';
   active: boolean;
@@ -90,4 +92,16 @@ export interface Report {
   reporterId: string;
   status: 'pending' | 'resolved';
   createdAt: number;
+}
+
+export interface Comment {
+  id: string;
+  authorId: string;
+  authorName: string;
+  authorAvatar: string;
+  authorVerified?: boolean;
+  text: string;
+  timestamp: number;
+  likes?: number;
+  likedBy?: Record<string, boolean>;
 }

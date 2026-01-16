@@ -1,6 +1,7 @@
 
 import React from 'react';
 import { User } from '../types';
+import { VerificationBadge } from '../constants';
 
 interface ProfileProps {
   user: User;
@@ -29,7 +30,10 @@ export const Profile: React.FC<ProfileProps> = ({ user, onLogout }) => {
              </div>
           </div>
 
-          <h2 className="text-2xl font-black text-slate-900 tracking-tight text-center">{user.name}</h2>
+          <h2 className="text-2xl font-black text-slate-900 tracking-tight text-center flex items-center gap-1">
+              {user.name}
+              {user.isVerified && <VerificationBadge />}
+          </h2>
           <p className="text-slate-400 font-bold text-sm mb-6">{user.whatsapp}</p>
 
           <div className="flex gap-3 mb-6">

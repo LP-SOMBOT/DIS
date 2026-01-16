@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Message, Channel } from '../types';
 import { useData } from '../context/DataContext';
+import { VerificationBadge } from '../constants';
 
 interface ChatViewProps {
   user: User;
@@ -10,9 +11,8 @@ interface ChatViewProps {
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setActiveChannelId }) => {
-  const { channels, messages, sendMessage, deleteMessage, users } = useData();
+  const { channels, messages, sendMessage, deleteMessage, users, unreadCounts, markChannelAsRead } = useData();
   const [inputValue, setInputValue] = useState('');
-  // Changed default state to 'list' to always show group list first
   const [currentView, setCurrentView] = useState<'list' | 'chat' | 'details'>('list');
   const [showWorkDoneModal, setShowWorkDoneModal] = useState(false);
   const [workText, setWorkText] = useState('');
@@ -30,6 +30,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
   useEffect(() => {
     if (currentView === 'chat') {
       chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      markChannelAsRead(activeChannelId);
     }
   }, [activeMessages, activeChannelId, currentView]);
 
@@ -80,7 +81,19 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {visibleChannels.map((chan) => (
+          {visibleChannels.map((chan) => {
+             const channelMessages = messages[chan.id] || [];
+             const lastMsg = channelMessages.length > 0 ? channelMessages[channelMessages.length - 1] : null;
+             const unread = unreadCounts[chan.id] || 0;
+             
+             let previewText = 'No messages yet';
+             if (lastMsg) {
+                 const senderName = lastMsg.senderId === user.id ? 'You' : lastMsg.senderName.split(' ')[0];
+                 const content = lastMsg.type === 'image' ? 'Sent an image' : lastMsg.type === 'work_done' ? 'Shared work' : lastMsg.text;
+                 previewText = `${senderName}: ${content}`;
+             }
+
+             return (
             <button
               key={chan.id}
               onClick={() => selectChannel(chan.id)}
@@ -101,16 +114,24 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
                   <h3 className="text-slate-900 font-bold truncate text-[16px]">
                     {chan.name}
                   </h3>
-                  {chan.status === 'closed' && <span className="text-[9px] bg-red-100 text-red-600 px-1 rounded uppercase">Closed</span>}
+                  <div className="flex gap-2 items-center">
+                    {chan.status === 'closed' && <span className="text-[9px] bg-red-100 text-red-600 px-1 rounded uppercase">Closed</span>}
+                    {lastMsg && <span className="text-[10px] text-slate-400">{new Date(lastMsg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
+                  </div>
                 </div>
                 <div className="flex justify-between items-center">
-                  <p className="text-sm truncate pr-2 text-slate-500">
-                    {chan.lastMessage || 'No messages yet'}
+                  <p className={`text-sm truncate pr-2 ${unread > 0 ? 'text-slate-900 font-bold' : 'text-slate-500'}`}>
+                    {previewText}
                   </p>
+                  {unread > 0 && (
+                      <div className="bg-emerald-500 text-white text-[10px] font-bold h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">
+                          {unread}
+                      </div>
+                  )}
                 </div>
               </div>
             </button>
-          ))}
+          )})}
         </div>
       </div>
     );
@@ -180,7 +201,10 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
                   {u.name[0]}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h4 className="font-bold text-slate-900 truncate">{u.name}</h4>
+                  <h4 className="font-bold text-slate-900 truncate flex items-center">
+                      {u.name}
+                      {u.isVerified && <VerificationBadge />}
+                  </h4>
                   <p className="text-xs text-slate-500 truncate">{u.district}</p>
                 </div>
                 {u.role !== 'user' && (
@@ -233,6 +257,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
           {activeMessages.map((msg) => {
             const isMe = msg.senderId === user.id;
             const isAdmin = user.role === 'admin' || user.role === 'super_admin';
+            const sender = users[msg.senderId];
 
             if (msg.type === 'work_done' && !msg.deleted) {
               return (
@@ -245,7 +270,10 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
                       </div>
                     </div>
                     <div className="p-5">
-                      <p className="text-[11px] font-black text-emerald-600 mb-2 uppercase tracking-widest">{msg.senderName}</p>
+                      <p className="text-[11px] font-black text-emerald-600 mb-2 uppercase tracking-widest flex items-center">
+                          {msg.senderName}
+                          {sender?.isVerified && <VerificationBadge />}
+                      </p>
                       <p className="text-[15px] font-bold text-slate-800 leading-relaxed mb-4">{msg.text}</p>
                       <div className="flex justify-between items-center">
                         <span className="text-[10px] font-black text-slate-300 uppercase">{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
@@ -262,7 +290,12 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
             return (
               <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
                 <div className={`max-w-[85%] px-4 py-3 rounded-2xl shadow-sm text-[15px] relative ${isMe ? 'bg-emerald-600 text-white rounded-tr-none' : 'bg-white text-slate-800 rounded-tl-none border border-slate-100'} ${msg.deleted ? 'opacity-60 italic' : ''}`}>
-                  {!isMe && <p className="text-[10px] font-black text-emerald-600 mb-1 uppercase tracking-tighter">{msg.senderName}</p>}
+                  {!isMe && (
+                      <p className="text-[10px] font-black text-emerald-600 mb-1 uppercase tracking-tighter flex items-center">
+                          {msg.senderName}
+                          {sender?.isVerified && <VerificationBadge />}
+                      </p>
+                  )}
                   <p className="leading-relaxed font-semibold">{msg.text}</p>
                   <div className="flex justify-end items-center gap-2 mt-1">
                     <span className={`text-[9px] font-bold ${isMe ? 'text-emerald-100' : 'text-slate-400'}`}>{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>

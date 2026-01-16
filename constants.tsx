@@ -1,7 +1,16 @@
 
+import React from 'react';
 import { District, HomePost, VideoPost, Channel } from './types';
 
 export const DISTRICTS: District[] = ['Deg. Hodan', 'Deg. Deyniile', 'Deg. Yaqshiid'];
+
+// Verification Badge Component
+export const VerificationBadge = () => (
+  <svg className="w-4 h-4 inline-block ml-1 align-middle text-blue-500" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M22.5 12.0001C22.5 13.5682 21.6591 14.9432 20.4318 15.6592C20.6591 17.5001 19.5227 19.341 17.75 20.0001C16.9091 21.4546 15.0227 21.9092 13.5227 21.2273C12.3182 22.3864 10.4318 22.2501 9.38636 21.0001C7.84091 21.4319 6.22727 20.6137 5.54545 19.1364C4.09091 18.9092 3.02273 17.6137 3.09091 16.0001C1.65909 15.2046 1.09091 13.5001 1.77273 12.0001C1.09091 10.5001 1.65909 8.79555 3.09091 8.00009C3.02273 6.38646 4.09091 5.09096 5.54545 4.86369C6.22727 3.38642 7.84091 2.56828 9.38636 3.00009C10.4318 1.75009 12.3182 1.61373 13.5227 2.77282C15.0227 2.09096 16.9091 2.54555 17.75 4.00009C19.5227 4.65918 20.6591 6.50009 20.4318 8.341C21.6591 9.05691 22.5 10.4319 22.5 12.0001Z" fill="#3B82F6"/>
+    <path d="M10.3636 15.6817L7.09091 12.409L8.36364 11.1362L10.3636 13.1362L15.6364 7.86353L16.9091 9.13625L10.3636 15.6817Z" fill="white"/>
+  </svg>
+);
 
 export const MOCK_FEED: HomePost[] = [
   {
@@ -11,6 +20,7 @@ export const MOCK_FEED: HomePost[] = [
       name: 'Ahmed Cali',
       avatar: 'A',
       district: 'Deg. Hodan',
+      isVerified: true
     },
     type: 'awareness',
     title: 'Hadiyadii Nadaafadda',
@@ -31,6 +41,7 @@ export const MOCK_FEED: HomePost[] = [
       name: 'Faduma Jaamac',
       avatar: 'F',
       district: 'Deg. Yaqshiid',
+      isVerified: false
     },
     type: 'standard',
     description: 'Dhirtii aan beeranay bishii hore hadda wey soo baxayaan. Degmada Yaqshiid waa naga nadaafad iyo doog!',
@@ -49,6 +60,7 @@ export const MOCK_FEED: HomePost[] = [
       name: 'Sahal Maxamed',
       avatar: 'S',
       district: 'Deg. Deyniile',
+      isVerified: true
     },
     type: 'awareness',
     title: 'Dib u dhiska Isgoyska',

@@ -2,11 +2,12 @@
 import React, { useState } from 'react';
 import { useData } from '../context/DataContext';
 import { User } from '../types';
+import { VerificationBadge } from '../constants';
 
 export const AdminDashboard: React.FC = () => {
   const { 
     users, channels, posts, reports, districts,
-    banUser, addDistrict, deletePost, toggleChannelStatus 
+    banUser, addDistrict, deletePost, toggleChannelStatus, toggleUserVerification
   } = useData();
   const [pin, setPin] = useState('');
   const [authenticated, setAuthenticated] = useState(false);
@@ -129,20 +130,32 @@ export const AdminDashboard: React.FC = () => {
               <tbody>
                 {(Object.values(users) as User[]).map(user => (
                   <tr key={user.id} className="border-b last:border-0 hover:bg-slate-50">
-                    <td className="p-4 font-bold">{user.name} <br/><span className="text-slate-400 font-normal">{user.whatsapp}</span></td>
+                    <td className="p-4 font-bold">
+                        <div className="flex items-center">
+                            {user.name} 
+                            {user.isVerified && <VerificationBadge />}
+                        </div>
+                        <span className="text-slate-400 font-normal">{user.whatsapp}</span>
+                    </td>
                     <td className="p-4">{user.district}</td>
                     <td className="p-4">
                       <span className={`px-2 py-1 rounded text-xs font-bold ${user.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
                         {user.status}
                       </span>
                     </td>
-                    <td className="p-4">
+                    <td className="p-4 flex gap-2">
+                      <button
+                        onClick={() => toggleUserVerification(user.id)}
+                        className={`px-3 py-1.5 rounded-lg font-bold text-xs border ${user.isVerified ? 'border-blue-200 text-blue-600' : 'border-slate-200 text-slate-500'}`}
+                      >
+                         {user.isVerified ? 'Unverify' : 'Verify'}
+                      </button>
                       {user.status === 'active' && (
                         <button 
                           onClick={() => banUser(user.id)}
                           className="text-red-500 hover:bg-red-50 px-3 py-1.5 rounded-lg font-bold text-xs border border-red-200"
                         >
-                          Ban User
+                          Ban
                         </button>
                       )}
                     </td>
