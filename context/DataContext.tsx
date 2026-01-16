@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { database } from '../firebase';
 import { ref, onValue, set, push, update, remove, get, child, runTransaction } from 'firebase/database';
-import { User, Channel, Message, HomePost, District, Report, Comment } from '../types';
+import { User, Channel, Message, HomePost, District, Report, Comment, UserPermissions, Role } from '../types';
 import { CHANNELS as INITIAL_CHANNELS, MOCK_FEED } from '../constants';
 
 interface DataContextType {
@@ -23,11 +23,16 @@ interface DataContextType {
   toggleCommentLike: (postId: string, commentId: string) => Promise<void>;
   addDistrict: (name: string) => Promise<void>;
   banUser: (userId: string) => Promise<void>;
+  unbanUser: (userId: string) => Promise<void>;
   toggleUserVerification: (userId: string) => Promise<void>;
+  updateUserRole: (userId: string, role: Role, permissions?: UserPermissions) => Promise<void>;
+  updateChannel: (channelId: string, data: Partial<Channel>) => Promise<void>;
   deleteMessage: (channelId: string, messageId: string) => Promise<void>;
   deletePost: (postId: string) => Promise<void>;
   toggleChannelStatus: (channelId: string, status: 'open' | 'closed') => Promise<void>;
   submitReport: (report: Partial<Report>) => Promise<void>;
+  dismissReport: (reportId: string) => Promise<void>;
+  resolveReport: (reportId: string) => Promise<void>;
   markChannelAsRead: (channelId: string) => void;
   login: (userId: string) => void;
   logout: () => void;
@@ -154,7 +159,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
              name: p.authorName,
              avatar: p.authorName[0],
              district: p.district,
-             isVerified: users[p.authorId]?.isVerified || false // Sync verification status from users
+             isVerified: users[p.authorId]?.isVerified || false 
           },
           image: p.imageBase64,
           beforeImg: p.beforeImageBase64,
@@ -192,7 +197,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
              timestamp: c.createdAt,
              likes: c.likes || 0,
              likedBy: c.likedBy || {},
-             authorVerified: users[c.authorId]?.isVerified || false // Sync
+             authorVerified: users[c.authorId]?.isVerified || false 
            })).sort((a: any, b: any) => a.createdAt - b.createdAt);
         });
         setPostComments(formatted);
@@ -208,7 +213,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       unsubReports();
       unsubComments();
     };
-  }, [users]); // Depend on users to re-map verification status in posts/comments
+  }, [users]); 
 
   const seedChannels = async () => {
     const mainChannel: Channel = {
@@ -247,7 +252,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       role: 'user',
       status: 'active',
       isVerified: false,
-      permissions: { mainGroup: true, users: false, posts: true, districts: false },
+      permissions: { managePosts: false, manageDistricts: false, manageUsers: false, verifyUsers: false },
       createdAt: Date.now(),
       ...userData
     };
@@ -300,11 +305,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     await set(newMessageRef, message);
     
-    // Update last message
     update(ref(database, `app/channels/${channelId}`), {
       lastMessage: type === 'image' ? 'Sent an image' : text
     });
-    // Mark as read for sender
     markChannelAsRead(channelId);
   };
 
@@ -412,6 +415,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await update(ref(database, `app/users/${userId}`), { status: 'banned' });
   };
 
+  const unbanUser = async (userId: string) => {
+    await update(ref(database, `app/users/${userId}`), { status: 'active' });
+  };
+
   const toggleUserVerification = async (userId: string) => {
       const userRef = ref(database, `app/users/${userId}`);
       const userSnap = await get(userRef);
@@ -419,6 +426,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const current = userSnap.val().isVerified || false;
           await update(userRef, { isVerified: !current });
       }
+  };
+
+  const updateUserRole = async (userId: string, role: Role, permissions?: UserPermissions) => {
+      const updates: any = { role };
+      if (permissions) {
+          updates.permissions = permissions;
+      }
+      await update(ref(database, `app/users/${userId}`), updates);
+  };
+
+  const updateChannel = async (channelId: string, data: Partial<Channel>) => {
+      await update(ref(database, `app/channels/${channelId}`), data);
   };
 
   const deleteMessage = async (channelId: string, messageId: string) => {
@@ -450,6 +469,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
+  const dismissReport = async (reportId: string) => {
+     await update(ref(database, `app/reports/${reportId}`), { status: 'dismissed' });
+  };
+
+  const resolveReport = async (reportId: string) => {
+     await update(ref(database, `app/reports/${reportId}`), { status: 'resolved' });
+  };
+
   return (
     <DataContext.Provider value={{
       currentUser,
@@ -469,11 +496,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       toggleCommentLike,
       addDistrict,
       banUser,
+      unbanUser,
       toggleUserVerification,
+      updateUserRole,
+      updateChannel,
       deleteMessage,
       deletePost,
       toggleChannelStatus,
       submitReport,
+      dismissReport,
+      resolveReport,
       markChannelAsRead,
       login,
       logout

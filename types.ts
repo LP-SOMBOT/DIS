@@ -5,10 +5,10 @@ export type Role = 'user' | 'admin' | 'super_admin';
 export type UserStatus = 'active' | 'banned';
 
 export interface UserPermissions {
-  mainGroup: boolean;
-  users: boolean;
-  posts: boolean;
-  districts: boolean;
+  managePosts: boolean;
+  manageDistricts: boolean;
+  manageUsers: boolean;
+  verifyUsers: boolean;
 }
 
 export interface User {
@@ -20,7 +20,7 @@ export interface User {
   avatarBase64?: string;
   role: Role;
   status: UserStatus;
-  isVerified?: boolean; // Added Verification
+  isVerified?: boolean; 
   permissions: UserPermissions;
   createdAt: number;
 }
@@ -46,7 +46,7 @@ export interface HomePost {
     name: string;
     avatar: string;
     district: District;
-    isVerified?: boolean; // Sync verification
+    isVerified?: boolean; 
   };
   type: 'awareness' | 'standard';
   title?: string;
@@ -90,7 +90,7 @@ export interface Report {
   targetId: string;
   reason: string;
   reporterId: string;
-  status: 'pending' | 'resolved';
+  status: 'pending' | 'resolved' | 'dismissed';
   createdAt: number;
 }
 

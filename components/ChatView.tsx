@@ -21,7 +21,10 @@ export const ChatView: React.FC<ChatViewProps> = ({ user, activeChannelId, setAc
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const visibleChannels = channels.filter(channel => 
-    channel.type === 'main' || channel.district === user.district
+    channel.type === 'main' || 
+    channel.district === user.district || 
+    user.role === 'admin' || 
+    user.role === 'super_admin'
   );
 
   const activeMessages = messages[activeChannelId] || [];
