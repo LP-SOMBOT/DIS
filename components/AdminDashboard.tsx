@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useData } from '../context/DataContext';
 import { User, Channel, Report } from '../types';
 
@@ -11,18 +11,17 @@ const Badge: React.FC<{ children: React.ReactNode; color: string }> = ({ childre
   </span>
 );
 
-const ToggleSwitch: React.FC<{ active: boolean; onChange: () => void }> = ({ active, onChange }) => (
+const ToggleSwitch: React.FC<{ active: boolean; onChange: () => void; disabled?: boolean }> = ({ active, onChange, disabled }) => (
   <button 
-    onClick={onChange}
-    className={`w-12 h-6 rounded-full transition-all relative ${active ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]' : 'bg-slate-700'}`}
+    onClick={(e) => { e.stopPropagation(); if(!disabled) onChange(); }}
+    disabled={disabled}
+    className={`w-12 h-6 rounded-full transition-all relative ${active ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]' : 'bg-slate-700'} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
   >
     <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-transform ${active ? 'translate-x-7' : 'translate-x-1'}`} />
   </button>
 );
 
-// --- Sub-components for Sections ---
-
-const StatCard: React.FC<{ label: string; value: string; subtext: string; trend?: string; color?: string; icon?: React.ReactNode }> = ({ label, value, subtext, trend, color = 'text-white', icon }) => (
+const StatCard: React.FC<{ label: string; value: string | number; subtext: string; trend?: string; color?: string; icon?: React.ReactNode }> = ({ label, value, subtext, trend, color = 'text-white', icon }) => (
   <div className="bg-[#161a1d] rounded-2xl p-4 border border-white/5 flex flex-col justify-between h-32 relative overflow-hidden">
     <div className="space-y-1">
       <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{label}</p>
@@ -38,8 +37,242 @@ const StatCard: React.FC<{ label: string; value: string; subtext: string; trend?
   </div>
 );
 
+// --- Section Views ---
+
+const OverviewSection: React.FC = () => {
+  const { users, reports, posts, channels } = useData();
+  
+  const userCount = Object.keys(users).length;
+  const pendingReports = reports.filter(r => r.status === 'pending');
+  const onlineCount = useMemo(() => {
+    const cutoff = Date.now() - 5 * 60 * 1000;
+    // Explicitly casting Object.values(users) to User[] to fix type errors
+    return (Object.values(users) as User[]).filter(u => (u.lastActive || 0) > cutoff).length;
+  }, [users]);
+
+  return (
+    <div className="space-y-8 animate-fadeIn">
+      {/* Stats Grid */}
+      <div className="grid grid-cols-3 gap-4">
+        <StatCard 
+          label="Active Users" 
+          value={userCount > 1000 ? (userCount / 1000).toFixed(1) + 'k' : userCount} 
+          subtext={`${onlineCount} Online Now`} 
+          trend="up"
+        />
+        <StatCard 
+          label="Reports" 
+          value={pendingReports.length} 
+          subtext={pendingReports.length > 5 ? "High Priority" : "Manageable"} 
+          color={pendingReports.length > 0 ? "text-orange-500" : "text-emerald-500"}
+          icon={<div className={`w-1 h-3 rounded-full ${pendingReports.length > 0 ? 'bg-orange-500' : 'bg-emerald-500'}`} />}
+        />
+        <StatCard 
+          label="Node Health" 
+          value="99%" 
+          subtext="Stable" 
+          color="text-emerald-500"
+          icon={<div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />}
+        />
+      </div>
+
+      {/* District Control Center Preview */}
+      <DistrictControlSection limit={3} />
+
+      {/* Global User Management Preview */}
+      <UserManagementSection limit={5} />
+    </div>
+  );
+};
+
+const ModerationQueueSection: React.FC = () => {
+  const { reports, users, banUser, dismissReport, resolveReport, deletePost, deleteMessage, showToast } = useData();
+  const [loadingId, setLoadingId] = useState<string | null>(null);
+
+  const pending = reports.filter(r => r.status === 'pending');
+
+  const handleAction = async (report: Report, action: 'dismiss' | 'ban') => {
+    setLoadingId(report.id);
+    try {
+      if (action === 'dismiss') {
+        await dismissReport(report.id);
+        showToast("Report dismissed", "success");
+      } else {
+        await banUser(report.targetId);
+        await resolveReport(report.id);
+        showToast("User banned successfully", "success");
+      }
+    } catch (e) {
+      showToast("Operation failed", "error");
+    } finally {
+      setLoadingId(null);
+    }
+  };
+
+  return (
+    <section className="space-y-4 animate-fadeIn">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-black tracking-tight flex items-center gap-3">
+          <svg className="w-5 h-5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+          Moderation Queue
+        </h2>
+        <Badge color="bg-emerald-500/20 text-emerald-500">{pending.length} New</Badge>
+      </div>
+
+      <div className="space-y-4">
+        {pending.length === 0 && (
+          <div className="bg-[#161a1d] rounded-3xl p-12 text-center text-slate-500 border border-dashed border-white/10 font-bold">
+            Queue is clear. No pending reports.
+          </div>
+        )}
+        {pending.map(report => {
+          const targetUser = users[report.targetId];
+          return (
+            <div key={report.id} className="bg-[#161a1d] rounded-3xl p-6 border-l-4 border-orange-500 shadow-xl space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-slate-800 flex items-center justify-center overflow-hidden border border-white/5 font-black text-slate-500">
+                     {targetUser?.name[0] || 'U'}
+                  </div>
+                  <div>
+                    <h4 className="font-black text-sm">{targetUser?.name || 'Unknown User'}</h4>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">District: {targetUser?.district || 'Unknown'}</p>
+                  </div>
+                </div>
+                <Badge color="bg-slate-800 text-slate-400">{report.type}</Badge>
+              </div>
+              
+              <p className="text-sm text-slate-400 leading-relaxed font-medium">
+                Reason: <span className="text-orange-400 font-bold">{report.reason}</span>
+              </p>
+
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <button 
+                  onClick={() => handleAction(report, 'dismiss')}
+                  disabled={loadingId === report.id}
+                  className="py-3.5 rounded-2xl bg-slate-800 text-xs font-black uppercase tracking-widest hover:bg-slate-700 transition-colors disabled:opacity-50"
+                >
+                  Dismiss
+                </button>
+                <button 
+                  onClick={() => handleAction(report, 'ban')}
+                  disabled={loadingId === report.id}
+                  className="py-3.5 rounded-2xl bg-[#ff5f3f] text-white text-xs font-black uppercase tracking-widest shadow-lg shadow-orange-900/20 hover:brightness-110 transition-all disabled:opacity-50"
+                >
+                  {loadingId === report.id ? 'Processing...' : 'Ban User'}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+};
+
+const DistrictControlSection: React.FC<{ limit?: number }> = ({ limit }) => {
+  const { channels, toggleChannelStatus } = useData();
+  const districtChats = channels.filter(c => c.type === 'district');
+  const displayList = limit ? districtChats.slice(0, limit) : districtChats;
+
+  return (
+    <section className="space-y-4 animate-fadeIn">
+      <h2 className="text-lg font-black tracking-tight flex items-center gap-3">
+         <svg className="w-5 h-5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+         District Control Center
+      </h2>
+      
+      <div className="space-y-3">
+        {displayList.map((chan) => (
+          <div key={chan.id} className="bg-[#161a1d] rounded-2xl p-4 border border-white/5 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className={`p-3 rounded-xl ${chan.status === 'open' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-slate-800 text-slate-500'}`}>
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+              </div>
+              <div>
+                <h4 className="font-bold text-sm">{chan.name}</h4>
+                <p className={`text-[10px] font-black uppercase tracking-widest mt-0.5 ${chan.status === 'open' ? 'text-emerald-500' : 'text-red-400'}`}>
+                  {chan.status === 'open' ? 'Active & Secure' : 'Paused for Review'}
+                </p>
+              </div>
+            </div>
+            <ToggleSwitch 
+              active={chan.status === 'open'} 
+              onChange={() => toggleChannelStatus(chan.id, chan.status === 'open' ? 'closed' : 'open')} 
+            />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+};
+
+const UserManagementSection: React.FC<{ limit?: number }> = ({ limit }) => {
+  const { users, banUser, unbanUser, toggleUserVerification } = useData();
+  // Casting Object.values(users) to User[] to ensure TypeScript knows the structure of 'u'
+  const userList = (Object.values(users) as User[]).sort((a, b) => b.createdAt - a.createdAt);
+  const displayList = limit ? userList.slice(0, limit) : userList;
+
+  return (
+    <section className="space-y-4 animate-fadeIn">
+       <h2 className="text-lg font-black tracking-tight flex items-center gap-3">
+          <svg className="w-5 h-5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+          Global User Management
+       </h2>
+
+       <div className="space-y-3">
+         {displayList.map((u) => (
+           <div key={u.id} className="bg-[#161a1d] rounded-2xl p-4 border border-white/5 flex items-center justify-between">
+             <div className="flex items-center gap-3">
+               <div className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center font-black text-slate-500 bg-slate-800 text-xs overflow-hidden">
+                  {u.name[0]}
+               </div>
+               <div>
+                 <h4 className="font-bold text-sm">{u.name}</h4>
+                 <p className={`text-[9px] font-black uppercase tracking-widest ${u.role !== 'user' ? 'text-purple-400' : 'text-emerald-500'}`}>
+                    {u.role === 'user' ? (u.status === 'active' ? 'Contributor' : 'Banned') : u.role}
+                 </p>
+               </div>
+             </div>
+             <div className="flex items-center gap-2">
+               <button 
+                 onClick={() => toggleUserVerification(u.id)}
+                 className={`w-8 h-8 rounded-full flex items-center justify-center border transition-all ${u.isVerified ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-slate-800 text-slate-500 border-white/5'}`}
+               >
+                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/></svg>
+               </button>
+               {u.status === 'active' ? (
+                 <button 
+                   onClick={() => banUser(u.id)}
+                   className="w-8 h-8 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center border border-red-500/20 hover:bg-red-500/20 transition-all"
+                 >
+                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8 0-1.85.63-3.55 1.69-4.9L16.9 16.31C15.55 17.37 13.85 18 12 18zm4.31-3.1L5.69 7.69C7.05 6.63 8.75 6 10.69 6c4.42 0 8 3.58 8 8 0 1.85-.63-3.55-1.69 4.9z"/></svg>
+                 </button>
+               ) : (
+                 <button 
+                   onClick={() => unbanUser(u.id)}
+                   className="w-8 h-8 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center border border-emerald-500/20 hover:bg-emerald-500/20 transition-all"
+                 >
+                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 14h-2v-2h2v2zm0-4h-2V7h2v5z"/></svg>
+                 </button>
+               )}
+             </div>
+           </div>
+         ))}
+       </div>
+
+       {limit && (
+         <button className="w-full py-4 rounded-2xl border border-white/10 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:bg-white/5 transition-all">
+           View All {Object.keys(users).length} Users
+         </button>
+       )}
+    </section>
+  );
+};
+
+// --- Main Layout ---
+
 export const AdminDashboard: React.FC = () => {
-  const { users, channels, reports, districts, banUser, dismissReport, toggleChannelStatus } = useData();
   const [authenticated, setAuthenticated] = useState(false);
   const [pin, setPin] = useState('');
   const [activeTab, setActiveTab] = useState('overview');
@@ -105,137 +338,15 @@ export const AdminDashboard: React.FC = () => {
         </button>
       </div>
 
-      <div className="px-6 space-y-8 mt-4">
-        {/* Stats Grid */}
-        <div className="grid grid-cols-3 gap-4">
-          <StatCard 
-            label="Active Users" 
-            value="14.2k" 
-            subtext="2.1%" 
-            trend="up"
-          />
-          <StatCard 
-            label="Reports" 
-            value="42" 
-            subtext="High Priority" 
-            color="text-orange-500"
-            icon={<div className="w-1 h-3 bg-orange-500 rounded-full" />}
-          />
-          <StatCard 
-            label="Node Health" 
-            value="99%" 
-            subtext="Stable" 
-            color="text-emerald-500"
-            icon={<div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />}
-          />
-        </div>
-
-        {/* Moderation Queue */}
-        <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-black tracking-tight flex items-center gap-3">
-              <svg className="w-5 h-5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-              Moderation Queue
-            </h2>
-            <Badge color="bg-emerald-500/20 text-emerald-500">3 New</Badge>
+      <div className="px-6 space-y-8 mt-4 overflow-y-auto max-h-[calc(100vh-140px)] hide-scrollbar">
+        {activeTab === 'overview' && <OverviewSection />}
+        {activeTab === 'queue' && <ModerationQueueSection />}
+        {activeTab === 'users' && <UserManagementSection />}
+        {activeTab === 'logs' && (
+          <div className="animate-fadeIn p-12 text-center text-slate-500 border border-dashed border-white/10 rounded-3xl font-bold">
+            System logs feature coming soon.
           </div>
-
-          <div className="bg-[#161a1d] rounded-3xl p-6 border-l-4 border-orange-500 shadow-xl space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-slate-800 flex items-center justify-center overflow-hidden border border-white/5">
-                   <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Abdi" alt="Abdi" />
-                </div>
-                <div>
-                  <h4 className="font-black text-sm">Abdi Farah</h4>
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">District: Hamar Weyne</p>
-                </div>
-              </div>
-              <Badge color="bg-slate-800 text-slate-400">Spam</Badge>
-            </div>
-            
-            <p className="text-sm text-slate-400 leading-relaxed font-medium">
-              Reported message: "Unrelated commercial link posted in the community cleanliness group..."
-            </p>
-
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <button className="py-3.5 rounded-2xl bg-slate-800 text-xs font-black uppercase tracking-widest hover:bg-slate-700 transition-colors">
-                Dismiss
-              </button>
-              <button className="py-3.5 rounded-2xl bg-[#ff5f3f] text-white text-xs font-black uppercase tracking-widest shadow-lg shadow-orange-900/20 hover:brightness-110 transition-all">
-                Ban User
-              </button>
-            </div>
-          </div>
-        </section>
-
-        {/* District Control Center */}
-        <section className="space-y-4">
-          <h2 className="text-lg font-black tracking-tight flex items-center gap-3">
-             <svg className="w-5 h-5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-             District Control Center
-          </h2>
-          
-          <div className="space-y-3">
-            {[
-              { name: 'Hodan District Chat', status: 'Active & Secure', active: true },
-              { name: 'Wadajir District Chat', status: 'Paused for Review', active: false },
-              { name: 'Shingani District', status: 'Active & Secure', active: true },
-            ].map((d, i) => (
-              <div key={i} className="bg-[#161a1d] rounded-2xl p-4 border border-white/5 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className={`p-3 rounded-xl ${d.active ? 'bg-emerald-500/10 text-emerald-500' : 'bg-slate-800 text-slate-500'}`}>
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-sm">{d.name}</h4>
-                    <p className={`text-[10px] font-black uppercase tracking-widest mt-0.5 ${d.active ? 'text-emerald-500' : 'text-slate-500'}`}>{d.status}</p>
-                  </div>
-                </div>
-                <ToggleSwitch active={d.active} onChange={() => {}} />
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* Global User Management */}
-        <section className="space-y-4">
-           <h2 className="text-lg font-black tracking-tight flex items-center gap-3">
-              <svg className="w-5 h-5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-              Global User Management
-           </h2>
-
-           <div className="space-y-3">
-             {[
-               { name: 'Eng. Hassan', tag: 'Contributor', seed: 'Hassan' },
-               { name: 'Layla Jama', tag: 'New Member', seed: 'Layla' },
-             ].map((u, i) => (
-               <div key={i} className="bg-[#161a1d] rounded-2xl p-4 border border-white/5 flex items-center justify-between">
-                 <div className="flex items-center gap-3">
-                   <div className="w-10 h-10 rounded-full border border-white/10 p-0.5 overflow-hidden">
-                      <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${u.seed}`} alt={u.name} />
-                   </div>
-                   <div>
-                     <h4 className="font-bold text-sm">{u.name}</h4>
-                     <p className="text-[9px] font-black uppercase tracking-widest text-emerald-500">{u.tag}</p>
-                   </div>
-                 </div>
-                 <div className="flex items-center gap-2">
-                   <button className="w-8 h-8 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center border border-emerald-500/20 hover:bg-emerald-500/20 transition-all">
-                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/></svg>
-                   </button>
-                   <button className="w-8 h-8 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center border border-red-500/20 hover:bg-red-500/20 transition-all">
-                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8 0-1.85.63-3.55 1.69-4.9L16.9 16.31C15.55 17.37 13.85 18 12 18zm4.31-3.1L5.69 7.69C7.05 6.63 8.75 6 10.69 6c4.42 0 8 3.58 8 8 0 1.85-.63 3.55-1.69 4.9z"/></svg>
-                   </button>
-                 </div>
-               </div>
-             ))}
-           </div>
-
-           <button className="w-full py-4 rounded-2xl border border-white/10 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:bg-white/5 transition-all">
-             View All 14.2k Users
-           </button>
-        </section>
+        )}
       </div>
 
       {/* Custom Bottom Nav */}
@@ -246,7 +357,10 @@ export const AdminDashboard: React.FC = () => {
           
           {/* Center Shield Button */}
           <div className="relative -mt-10">
-            <button className="w-16 h-16 bg-emerald-500 rounded-full flex items-center justify-center shadow-[0_0_25px_rgba(16,185,129,0.5)] border-4 border-[#0a0c0d] active:scale-90 transition-transform">
+            <button 
+              onClick={() => setActiveTab('overview')}
+              className="w-16 h-16 bg-emerald-500 rounded-full flex items-center justify-center shadow-[0_0_25px_rgba(16,185,129,0.5)] border-4 border-[#0a0c0d] active:scale-90 transition-transform"
+            >
               <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>
             </button>
           </div>
